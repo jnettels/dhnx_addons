@@ -1,0 +1,38 @@
+# If conda activate does not work in PowerShell, use this command:
+# conda init powershell
+
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+
+# Or install into an existing environment with:
+# conda install --file  <this file>
+
+pandas
+numpy
+geopandas
+matplotlib
+osmnx
+coolprop
+fiona
+tobler
+h3-py
+contextily
+libpysal
+shapely
+pygeos
+openpyxl
+
+# From conda channel "-c jnettels":
+lpagg
+trnpy
+
+# To allow "conda develop"
+conda-build
+
+# dhnx/oemof dependencies:
+PyUtilib
+Pyomo
+addict
+blinker
+dill
+nose
