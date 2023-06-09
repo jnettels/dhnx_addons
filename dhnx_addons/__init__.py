@@ -1,4 +1,4 @@
-"""Initialize the package and define version."""
+"""Collection of generalized functions for ALKIS and OpenStreetMap data."""
 from pkg_resources import get_distribution, DistributionNotFound
 
 try:

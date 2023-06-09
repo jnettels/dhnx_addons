@@ -1,4 +1,4 @@
-"""Collection of generalized functions for ALKIS and openstreetmap data.
+"""Collection of generalized functions for ALKIS and OpenStreetMap data.
 
 Special requirements:
 
@@ -139,8 +139,8 @@ except ImportError as e:
 def main():
     """Run an example main method."""
     setup()
-    workflow_example_openstreetmap()
-    # workflow_example_openstreetmap(show_plot=False)
+    # workflow_example_openstreetmap()
+    workflow_example_openstreetmap(show_plot=False)
 
 
 def setup(log_level='INFO'):
@@ -196,7 +196,9 @@ def workflow_example_openstreetmap(
 
     # Run "load profile aggregator" to get maximum thermal load for buildings
     gdf_houses, df_load_ts_slice = lpagg_run(
-        gdf_houses, sigma=3, E_th_col='e_th_total_kWh',
+        gdf_houses,
+        sigma=3,
+        E_th_col='e_th_total_kWh',
         result_folder='./lpagg_result',
         print_file='load.dat',
         # intervall='15 minutes',
@@ -212,9 +214,6 @@ def workflow_example_openstreetmap(
         use_demandlib="auto",
         # use_demandlib=False,
         )
-
-    # breakpoint()
-
     save_path = './dhnx_result'
 
     save_geojson(gdf_houses, 'consumers', path=save_path, save_excel=True)
@@ -259,14 +258,15 @@ def workflow_default(buildings, show_plot=True):
 
     This is meant as an example on how to use these functions.
     """
+    buildings = fill_residential_osm_building_types(
+        buildings, discard_types=['yes'],
+        notna_columns=['addr:street', 'addr:housenumber'])
+
+    buildings = building_type_from_osm(buildings)
+
     buildings = identify_heated_buildings(
         buildings,
         notna_columns=['addr:street', 'addr:housenumber'])
-
-    buildings = fill_osm_building_types(buildings,
-                                        col_heated='heated',
-                                        discard_types=['yes'])
-    buildings = building_type_from_osm(buildings)
 
     buildings = assign_random_construction_classification(
         buildings,
@@ -291,6 +291,7 @@ def workflow_default(buildings, show_plot=True):
     buildings = set_domestic_hot_water_from_DIN18599(buildings)
     buildings = separate_heating_and_DHW(buildings)
     buildings = guess_thermal_power_from_full_load_hours(buildings)
+    buildings = set_n_persons_and_flats(buildings)
     log_statistics(buildings, show_plot=show_plot)
 
     gdf_hex = create_hexgrid(buildings, clip=False, show_plot=show_plot,
@@ -613,7 +614,11 @@ def save_excel(df, path):
 
 # Section "Buildings and heat demand"
 def identify_heated_buildings(
-        gdf, col_heated='heated', area_threshold=40, notna_columns=None,
+        gdf, col_heated='heated',
+        area_threshold=40, notna_columns=None,
+        col_building_type='building_type',
+        types_heated=['SFH', 'MFH', 'business',
+                      'other-heated-non-residential'],
         ):
     """Identify heated buildings depending on certain criteria.
 
@@ -640,8 +645,11 @@ def identify_heated_buildings(
     else:
         mask2 = True
 
-    gdf.loc[mask1 & mask2, col_heated] = True
-    gdf.loc[~(mask1 & mask2), col_heated] = False
+    if col_building_type in gdf.columns:
+        mask3 = gdf[col_building_type].isin(types_heated)
+
+    gdf.loc[mask1 & mask2 & mask3, col_heated] = True
+    gdf.loc[~(mask1 & mask2 & mask3), col_heated] = False
 
     return gdf
 
@@ -771,24 +779,31 @@ def assign_alkis_functions_to_osm_building_keys(
     return buildings
 
 
-def fill_osm_building_types(
-        buildings,
+def fill_residential_osm_building_types(
+        gdf,
         col_building_osm='building_osm',
         col_heated=None,
         area_threshold=200,  # m²
         discard_types=None,
+        notna_columns=None,
         ):
-    """Fill undefined buildings with osm building keys.
+    """Fill undefined buildings with residential osm building keys.
 
-    https://wiki.openstreetmap.org/wiki/Key:building
+    Often enough, the building types in OpenStreetMap are not properly
+    defined and the generic ``building=yes`` is given.
+    We cannot work with that, but rather than delete all those buildings,
+    we can make a guess and assume that most of these are residential
+    buildings.
 
     Buildings with col_heated == True (if given) and larger than
     area_threshold (in m²) are labelled 'apartments' (a OSM definition
     for multi-family-houses), while smaller buildings are labelled
     'house' (single-family).
 
+    https://wiki.openstreetmap.org/wiki/Key:building
+
     Args:
-        buildings (gdf): A GeoDataFrame of the buildings
+        gdf (GeoDataFrame): A GeoDataFrame of the buildings
 
         col_building_osm (str): Column name storing the building type
 
@@ -803,31 +818,41 @@ def fill_osm_building_types(
         is None, but recommendation is 'yes'. This generic building tag
         may make further processing problamatic otherwise.
 
+        notna_columns (list, optional):
+        List of names of columns that must not have
+        missing (na) values. Common example: Entries for street name and house
+        number are required for a building to be considered heated.
+        For OpenStreetMap data, use e.g. ['addr:street', 'addr:housenumber'].
+
     """
     logger.info('Fill random osm building types')
 
-    if col_building_osm not in buildings.columns:
-        buildings[col_building_osm] = np.nan
+    if col_building_osm not in gdf.columns:
+        gdf[col_building_osm] = np.nan
 
     if discard_types is not None:
-        buildings[col_building_osm].replace(discard_types, np.nan,
-                                            inplace=True)
+        mask_na = gdf[col_building_osm].replace(discard_types, np.nan).isna()
+    else:
+        mask_na = gdf[col_building_osm].isna()
 
-    mask_na = buildings[col_building_osm].isna()
+    mask_area = gdf.area >= area_threshold
 
-    mask_area = buildings.area >= area_threshold
+    if notna_columns is not None:
+        mask_notna = gdf[notna_columns].notna().all(axis='columns')
+    else:
+        mask_notna = True
 
     if col_heated is not None:
-        mask_heat = buildings[col_heated] == True
+        mask_heated = gdf[col_heated] == True
     else:
-        mask_heat = [True]*len(buildings)
+        mask_heated = [True]*len(gdf)
 
-    buildings.loc[mask_na & mask_area & mask_heat, col_building_osm
-                  ] = 'apartments'
-    buildings.loc[mask_na & ~mask_area & mask_heat, col_building_osm
-                  ] = 'house'
+    gdf.loc[mask_na & mask_area & mask_heated & mask_notna,
+            col_building_osm] = 'apartments'
+    gdf.loc[mask_na & ~mask_area & mask_heated & mask_notna,
+            col_building_osm] = 'house'
 
-    return buildings
+    return gdf
 
 
 def fill_random_osm_building_types(
@@ -929,14 +954,14 @@ def building_type_from_osm(
         'other-heated-non-residential':
             ['school', 'college', 'university', 'fire_station', 'government',
              'civic', 'industrial', 'public', 'hotel', 'hospital', 'museum',
-             'sports_hall', 'kindergarten',
+             'sports_hall', 'kindergarten', 'warehouse',
              ],
         'non-heated':
             ['roof', 'tower', 'hangar', 'train_station', 'bridge', 'barn',
-             'cemetery', 'mast', 'garage', 'stadium', 'church', 'chapel',
-             'parking', 'castle', 'hut', 'silo', 'storage_tank', 'service',
+             'cemetery', 'mast', 'garage', 'garages', 'stadium', 'church',
+             'chapel', 'parking', 'castle', 'hut', 'silo', 'storage_tank',
              'greenhouse', 'water_tower', 'grandstand', 'roof', 'stadium',
-             'shed', 'carport'],
+             'shed', 'service', 'carport'],
         }
 
     # The user needs to decide how to handle the building tag 'yes'
@@ -1023,7 +1048,7 @@ def assign_construction_classification_from_arge(
     For each building, draw a random refurbishement states based on its
     assigned probabilities.
 
-    The original source defines single family homes (SFH) and multi-
+    The original source defines single- and multi family homes (SFH, MFH)
 
     TODO: Allow additional building types. These are given the mean
     of the available source building types.
@@ -1102,7 +1127,7 @@ def set_heat_demand_from_source_arge(
         col_refurbished_state='refurbished_state',
         col_construction_year='construction_year',
         fillna_value=None,
-        warnings='raise',
+        warnings='ignore',
         decimals=2,
         eta=0.85,
         aliases_SFH=None,
@@ -1507,6 +1532,8 @@ def set_domestic_hot_water_from_DIN18599(
             ['retail', 10],  # Einzelhandel, Kaufhaus
             ['school', 130],  # Schule
             ['university', 130],  # Schule
+            # Not in # DIN V 18599-10:2016
+            ['warehouse', 0],  # Lagerhaus / Lagerhalle
             ],
         )
     df_tmp = (df[[col_building_type]]
@@ -1612,15 +1639,23 @@ def calculate_avg_level_height(
 
 
 def calculate_levels_from_height(
-        gdf, col_height, col_levels='building:levels', level_height=3.5):
+        gdf, col_height, col_levels='building:levels', level_height=3.5,
+        limit=None, decimals=1):
     """Calculate the number of levels per building from the height.
 
     Given the height of a building in column 'col_height' and the
     height per level 'level_height', store the numver of levels in
     column 'col_levels'. Existing values are not overwritten.
+
+    limit (int): Set a maximum limit for the number of levels
+    decimals (int): Number of decimal places to round the result to
+
     """
-    gdf.loc[gdf[col_levels].isna(), col_levels] = \
-        (gdf[col_height]/level_height).clip(lower=1).round(1)
+    gdf.loc[gdf[col_levels].isna(), col_levels] = (
+        gdf[col_height]
+        .div(level_height)
+        .clip(lower=1, upper=limit)
+        .round(decimals))
     # print(gdf[col_levels].describe())
     return gdf
 
@@ -1652,11 +1687,12 @@ def calculate_building_areas(
 
     _col_levels = [col for col in col_levels if col in gdf.columns]
     if len(_col_levels) > 0:
+        make_columns_numeric(gdf, _col_levels, errors='raise')
         gdf[col_levels[0]].fillna(levels_default, inplace=True)
         levels = gdf[_col_levels].sum(axis='columns', min_count=1)
 
     else:  # None of col_levels are in gdf.columns
-        logger.warning("Column %s (number of levels) not in DataFrame. "
+        logger.warning("Column '%s' (number of levels) not in DataFrame. "
                        "Setting number of levels to %s for each building",
                        col_levels[0], levels_default)
         gdf[col_levels[0]] = levels_default
@@ -1724,7 +1760,7 @@ def set_n_persons_and_flats(
     """
     for col in [col_N_flats, col_N_pers]:
         if col not in gdf.columns:
-            gdf[col] = float('nan')
+            gdf[col] = np.nan
 
     mask_s = gdf[col_building_type] == 'SFH'
     mask_m = gdf[col_building_type] == 'MFH'
@@ -2472,36 +2508,30 @@ def clean_3d_geometry(gdf):
     return gdf
 
 
-def add_height_from_3d_geometries(gdf, gdf_3d):
+def add_height_from_3d_geometries(gdf, gdf_3d, columns):
     """Add height information from 3D-Model to 2D building GeoDataFrame.
 
+    # Links for obtaining buildings with 3D data
     https://opengeodata.lgln.niedersachsen.de/#lod1
-    """
-    pass
 
-    """# approoach in TSA
+    TODO Read the actual 3D polygon information, instead of depending
+    on a data column with the height value
+
+    TODO: Deal with data where height is stored in multiple columns
     # Combine the values from two columns into one:
     gdf_lod1['height'] = gdf_lod1['measuredheight']
     gdf_lod1.loc[gdf_lod1['height'].isna(), 'height'] = (
         gdf_lod1.loc[gdf_lod1['height'].isna(), 'buildingpart_measuredheight'])
 
-    # Join the height column from one gdf to the other
-    buildings = tobler.area_weighted.area_join(gdf_lod1, buildings, ['height'])
-    buildings['height'] = pd.to_numeric(buildings['height'])
-    buildings['height'].fillna(0, inplace=True)
-
-    # Derive number of floors from building height
-    mask = buildings['ANZAHLGS'].isna()
-    buildings.loc[mask, 'ANZAHLGS'] = round(
-        buildings.loc[mask, 'height']/meter_per_floor, 0)
-    buildings['ANZAHLGS'].clip(lower=1, upper=5, inplace=True)
-    # print(buildings['ANZAHLGS'].value_counts())
     """
+    return combine_buildings_and_parcels(gdf, gdf_3d, columns)
+
 
 # Section "OpenStreetMap downloads"
+def download_country_borders_from_osm(
+        places=["Braunschweig, Germany"], show_plot=False):
+    """Download borders of country, city etc. by the name(s) of the place(s).
 
-def download_country_borders_from_osm():
-    """
     https://pygis.io/docs/d_access_osm.html
     https://max-coding.medium.com/getting-administrative-boundaries-from-open-street-map-osm-using-pyosmium-9f108c34f86
 
@@ -2509,22 +2539,13 @@ def download_country_borders_from_osm():
     -------
     None.
 
-    """
-    # import osmnx
-    import osmnx as ox
-    import geopandas as gpd
-
-    place_name = [
-        # "Germany",
-        "SH, Germany",
-        # "NI, Germany",
-        ]
-    # Get place boundary related to the place name as a geodataframe
-    area = ox.geocode_to_gdf(place_name)
-    area.plot()
+    # Unused experiments:
 
     tags = {"boundary": 'administrative'}
     gdf = ox.geometries_from_polygon(area.geometry[0], tags=tags)
+
+    plot_geometries([gdf], plot_basemap=True)
+    plot_geometries([area], plot_basemap=True)
 
     gdf.dropna(subset=['admin_level'])
     gdf_al2 = gdf[gdf['admin_level'] == '2']
@@ -2537,6 +2558,12 @@ def download_country_borders_from_osm():
     gdf['place'].unique()
     gdf['addr:country'].unique()
     gdf.index.unique('element_type')
+
+    """
+    area = ox.geocode_to_gdf(places)
+    if show_plot:  # Show plot in a projected CRS
+        plot_geometries(area.to_crs('EPSG:4647'), plot_basemap=True)
+    return area
 
 
 def download_buildings_from_osm(
@@ -2696,6 +2723,10 @@ def download_streets_from_osm(
     gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
     # Remove nodes column (that make somehow trouble for exporting .geojson)
     gdf_lines_streets.drop(columns=['nodes'], inplace=True)
+    # Filter out e.g. 'polygon' types that would cause issues with dhnx
+    accepted_types = ['LineString', 'MultiLineString']
+    gdf_lines_streets = gdf_lines_streets.loc[
+        gdf_lines_streets['geometry'].type.isin(accepted_types)].copy()
 
     if crs is not None:
         # Convert to target crs
@@ -3214,6 +3245,9 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
 
     for col in ['N_Pers', 'N_WE', 'W_a']:
         if col not in df_lpagg.columns:
+            # Number of persons and number of flats is required for VDI4655
+            # Lpagg will fill in default values if we do not do it here.
+            # Try set_n_persons_and_flats() to fill with default values
             df_lpagg[col] = float('nan')
 
     df_lpagg = df_lpagg[list(rename_dict.values())]
@@ -3398,6 +3432,7 @@ def lpagg_merge_houses_and_load(
     return df_houses
 
 
+# Section with experimental / broken functions
 def QGIS_test_python():
     """Test for running QGIS scripts from python."""
     import sys
