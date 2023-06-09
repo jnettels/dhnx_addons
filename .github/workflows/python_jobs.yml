@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.8", "3.9", "3.10"]
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
 
     steps:
     - name: Checkout
@@ -21,37 +21,30 @@ jobs:
         update-conda: true
         python-version: ${{ matrix.python-version }}
 
-    - name: Initialize powershell for conda (Windows)
+    - name: Install dependencies with conda and pip
+      run: |
+        conda install --file requirements.txt -c conda-forge -c jnettels
+        pip install dhnx==0.0.3
+
+    - name: Install solver cbc (Windows)
       if: runner.os == 'Windows'
-      run: conda init powershell
-      
-    - name: Initialize bash for conda (Linux)
-      if: runner.os == 'Linux'
-      run: conda init bash
-      
-    - name: Install solver cbc (Linux only)
+      run: echo y | python dhnx_addons/cbc_installer.py
+
+    - name: Install solver cbc (Linux)
       if: runner.os == 'Linux'
       run: sudo apt install coinor-cbc -y
 
-    - name: Install dependencies with conda and pip
-      run: |
-        conda env create --file environment.yaml
-        conda activate work
-        # pip install dhnx==0.0.3 --dry-run
-        pip install dhnx==0.0.3
-
     - name: Install special demandlib branch from GitHub
       run: |
-        conda activate work
         git clone https://github.com/jnettels/demandlib
         cd demandlib
         git checkout features/add-vdi-from-lpagg
         conda develop ./src
-        
+
     - name: Run OpenStreetMap example workflow
       run: |
-        conda activate work
-        python dhnx_addons/dhnx_addons.py        
+        cd dhnx_addons
+        python dhnx_addons.py
 
     - name: Lint with flake8
       if: runner.os == 'Linux'  # Only needs to run once
