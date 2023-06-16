@@ -2817,6 +2817,7 @@ def download_streets_from_osm(
         custom_filter=custom_filter,
         )
     # graph = ox.utils_graph.get_largest_component(graph, strongly=True)
+    graph = ox.utils_graph.get_undirected(graph)  # drop "duplicates"
     gdf_lines_streets = ox.graph_to_gdfs(graph, nodes=False)
 
     if show_plot:
