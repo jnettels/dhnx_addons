@@ -9,7 +9,8 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.9", "3.10", "3.11"]
+        dhnx-version: ["pip", "github"]
 
     steps:
     - name: Checkout
@@ -21,10 +22,29 @@ jobs:
         update-conda: true
         python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies with conda and pip
+    - name: Install dependencies with conda
       run: |
         conda install --file requirements.txt -c conda-forge -c jnettels
+
+    - name: Install DHNx from pip
+      if: matrix.dhnx-version == 'pip'
+      run: |
         pip install dhnx==0.0.3
+
+    - name: Install DHNx from GitHub
+      if: matrix.dhnx-version == 'github'
+      run: |
+        git clone https://github.com/oemof/DHNx
+        cd DHNx
+        git checkout fix/logger-usage
+        pip install -e .
+
+    - name: Install special demandlib branch from GitHub
+      run: |
+        git clone https://github.com/jnettels/demandlib
+        cd demandlib
+        git checkout features/add-vdi-from-lpagg
+        conda develop ./src
 
     - name: Install solver cbc (Windows)
       if: runner.os == 'Windows'
@@ -33,13 +53,6 @@ jobs:
     - name: Install solver cbc (Linux)
       if: runner.os == 'Linux'
       run: sudo apt install coinor-cbc -y
-
-    - name: Install special demandlib branch from GitHub
-      run: |
-        git clone https://github.com/jnettels/demandlib
-        cd demandlib
-        git checkout features/add-vdi-from-lpagg
-        conda develop ./src
 
     - name: Run OpenStreetMap example workflow
       run: |
