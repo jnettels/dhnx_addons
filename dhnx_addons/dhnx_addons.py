@@ -84,8 +84,7 @@ try:
 except ImportError:
     import cbc_installer  # local import for running dhnx_addons.py
 
-# Define the logging function
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # Create a logger for this module
 
 try:
     import fiona
@@ -111,7 +110,7 @@ except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'dhnx' can be installed with "
                    "pip install dhnx==0.0.3")
-if parse_version(dhnx.__version__) != parse_version("0.0.3"):
+if parse_version(dhnx.__version__) < parse_version("0.0.3"):
     raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
                       ") is different from the tested version (0.0.3)")
 
@@ -139,6 +138,7 @@ except ImportError as e:
 def main():
     """Run an example main method."""
     setup()
+    logger.info("Welcome to the example main method")
     # workflow_example_openstreetmap()
     workflow_example_openstreetmap(show_plot=False)
 
@@ -148,12 +148,14 @@ def setup(log_level='INFO'):
     logger.setLevel(level=log_level.upper())  # Logger for this module
     # logging.getLogger('osmnx').setLevel(level='ERROR')
     # logging.getLogger('dhnx').setLevel(level='ERROR')
-    logging.basicConfig(format='%(asctime)-15s %(levelname)-8s %(message)s')
+    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
+                        datefmt='%H:%M:%S')
 
 
 def workflow_example_openstreetmap(
         gdf_area=None,
         gdf_prod=None,
+        gdf_streets=None,
         show_plot=True):
     """Run an example workflow from OpenStreetMap data."""
     if gdf_area is None:
@@ -216,33 +218,37 @@ def workflow_example_openstreetmap(
         )
     save_path = './dhnx_result'
 
-    save_geojson(gdf_houses, 'consumers', path=save_path, save_excel=True)
-    save_geojson(gdf_prod, 'producers', path=save_path)
+    save_geojson(gdf_houses, 'consumers_polygon', path=save_path,
+                 save_excel=True)
+    save_geojson(gdf_prod, 'producers_polygon', path=save_path)
 
-    gdf_streets = download_streets_from_osm(gdf_area)
+    if gdf_streets is None:
+        gdf_streets = download_streets_from_osm(gdf_area, dropna_tresh=0.01)
+        save_geojson(gdf_streets, 'streets_input', path=save_path,
+                     type_errors='coerce')
 
-    gdf_pipes, df_pipes = run_dhnx(
+    gdf_pipes, df_pipes = dhnx_run(
         gdf_streets, gdf_prod, gdf_houses,
         save_path=save_path,
         show_plot=show_plot,
-        path_invest_data='invest_data',
+        # path_invest_data='invest_data',
         # df_load_ts_slice=None,
         df_load_ts_slice=df_load_ts_slice,
         col_p_th=None,
         # col_p_th='p_th_guess_kW',
         # col_p_th='P_heat_max',
-        simultaneity=0.8,
+        # simultaneity=0.8,
         reset_index=False,
         method='boundary',
         solver=None,
         solver_cmdline_options={  # gurobi
             # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10
             # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0
-            # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
-            # 'TimeLimit': 60 * 1 * 1,  # (seconds of maximum runtime) (gurobi)
-            'TimeLimit': 60 * 5 * 1,  # (seconds of maximum runtime) (gurobi)
             'seconds': 60 * 10 * 1,  # (seconds of maximum runtime) (cbc)
-            # 'TimeLimit': 60 * 60 * 6,  # (seconds of maximum runtime)
+            # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
+            'TimeLimit': 60 * 10 * 1,  # (seconds of maximum runtime) (gurobi)
+            # 'TimeLimit': 60 * 60 * 1,  # (seconds of maximum runtime) (gurobi)
+            # 'TimeLimit': 60 * 60 * 3,  # (seconds of maximum runtime)
         },
         )
 
@@ -295,7 +301,7 @@ def workflow_default(buildings, show_plot=True):
     log_statistics(buildings, show_plot=show_plot)
 
     gdf_hex = create_hexgrid(buildings, clip=False, show_plot=show_plot,
-                             resolution=11, buffer_distance=100,
+                             resolution=None, buffer_distance=100,
                              plot_basemap=True,
                              )
 
@@ -374,6 +380,8 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
     if crs is None:
         if gdf.crs is None:
             crs = "EPSG:4647"  # 'backup' crs
+            logger.error(f"Geometry has no CRS. Assigning default {crs}, "
+                         "but that may be incorrect.")
         else:
             crs = gdf.crs
     try:
@@ -393,17 +401,24 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
             logger.info('Saving %s.geojson skipped!', file)
     except ValueError as e:
         # This may be an error like:
-        # "ValueError: Invalid field type <class 'numpy.int32'>"
+        # ValueError: Invalid field type <class 'numpy.int32'>
+        # ValueError("Invalid field type <class 'list'>")
         # Test which column causes the error
         for col in gdf.columns:
             if col in gdf.select_dtypes('geometry').columns:
                 continue  # Do not mess with the geometry column
             try:
+                # Try to trigger the exception again, but only for this column
                 json.dumps(gdf[col].tolist())  # Convert the column to JSON
-            except TypeError as e2:
+                # <class 'list'> causes errors in gdf.to_file(), but
+                # not in json.dumps. So if a list is present, we have
+                # to manually raise an exception
+                if list in gdf[col].map(type).unique():
+                    raise e
+            except (ValueError, TypeError) as e2:
                 if type_errors == 'raise':
                     raise TypeError(
-                        f"Error when converting column '{col}' to JSON: "
+                        f"Error in column '{col}' when saving '{file}': "
                         f"'{e2}'. You may try the option save_geojson(..., "
                         "type_errors='coerce') to attempt fixing this "
                         "by forcing conversion to string") from e
@@ -589,13 +604,13 @@ def _save_excel(df, path):
     save_excel(df, path)
 
 
-def save_excel(df, path):
+def save_excel(df, path, **kwargs):
     """Save (Geo-)DataFrame as Excel file (without 'geometry' column).
 
     Can also be automatically called by save_geojson().
 
-    Just a wrapper around 'df.to_excel(path)' that creates the directory
-    and asks to close the file in case of permission error.
+    Just a wrapper around 'df.to_excel(path, **kwargs)' that creates the
+    directory and asks to close the file in case of permission error.
     """
     if 'geometry' in df.columns:
         df_save = df.drop(columns='geometry')
@@ -606,10 +621,10 @@ def save_excel(df, path):
         os.makedirs(os.path.dirname(path))
     try:
         logger.info('Saving... %s', path)
-        df_save.to_excel(path)
+        df_save.to_excel(path, **kwargs)
     except PermissionError:
         input("Please close the file to allow saving! Then hit Enter.")
-        save_excel(df_save, path)
+        save_excel(df_save, path, **kwargs)
 
 
 # Section "Buildings and heat demand"
@@ -825,7 +840,7 @@ def fill_residential_osm_building_types(
         For OpenStreetMap data, use e.g. ['addr:street', 'addr:housenumber'].
 
     """
-    logger.info('Fill random osm building types')
+    logger.info('Fill residential OpenStreetMap building types')
 
     if col_building_osm not in gdf.columns:
         gdf[col_building_osm] = np.nan
@@ -1242,8 +1257,8 @@ def set_heat_demand_from_source_arge(
                        "specific heat demand, or ignore this warning.", n)
 
     if col_heated is not None:
-        # Set heat demand of non-heated buildings to zero
-        df_out.loc[df_out[col_heated] == False, col_spec_total] = 0
+        # Set heat demand of non-heated buildings to nan
+        df_out.loc[df_out[col_heated] == False, col_spec_total] = np.nan
 
     df_out[col_total] = (df_out[col_spec_total] * df_out['a_N']
                          ).round(decimals)
@@ -1257,6 +1272,17 @@ def process_src_data_arge(
     """Process data from source ARGE."""
     df.index.set_names(idx_name, inplace=True)
     df.columns.set_names(col_names, inplace=True)
+
+    try:
+        # Convert 2nd column index level to categorical (for sorting)
+        df_idx = df.columns.to_frame(index=False)
+        df_idx[col_names[1]] = pd.Categorical(
+            df.columns.get_level_values(1),
+            categories=df.columns.unique(level=1),
+            ordered=True)
+        df.columns = pd.MultiIndex.from_frame(df_idx)
+    except IndexError:
+        pass
 
     # Apply the aliases by making copies of the correct columns
     if aliases_SFH is not None:
@@ -1365,7 +1391,7 @@ def set_heat_demand_for_new_buildings(
 
     if col_heated is not None:
         # Set heat demand of non-heated buildings to zero
-        df_tmp.loc[df_tmp[col_heated] == False, col_spec_total] = 0
+        df_tmp.loc[df_tmp[col_heated] == False, col_spec_total] = np.nan
 
     df_tmp[col_total] = (df_tmp[col_spec_total]*df_tmp['a_N']).round(decimals)
 
@@ -1520,7 +1546,7 @@ def set_domestic_hot_water_from_DIN18599(
     # DIN V 18599-10:2016, page 30
     df_non_residential = pd.DataFrame(
         columns=[col_building_type, col_spec_DHW],
-        data=[
+        data=[  # Wh/(m² * d)
             ['civic', 30],  # Bürogebäude
             ['college', 130],  # Schule
             ['commercial', 10],  # Einzelhandel, Kaufhaus
@@ -1532,10 +1558,16 @@ def set_domestic_hot_water_from_DIN18599(
             ['retail', 10],  # Einzelhandel, Kaufhaus
             ['school', 130],  # Schule
             ['university', 130],  # Schule
+
             # Not in # DIN V 18599-10:2016
             ['warehouse', 0],  # Lagerhaus / Lagerhalle
             ],
         )
+    # Convert Wh/(m² * d) to kWh/m²  (reference area: NGF)
+    df_non_residential[col_spec_DHW] = df_non_residential[col_spec_DHW].mul(
+        365/1000)
+
+    # Assign the each building type in df its specific heat demand
     df_tmp = (df[[col_building_type]]
               .merge(df_non_residential, on=col_building_type, how='left')
               .set_index(df.index)  # preserve index for correct update
@@ -1543,13 +1575,16 @@ def set_domestic_hot_water_from_DIN18599(
 
     try:
         geometry_col = df.geometry.name  # Store name of geometry column
+        crs = df.crs
     except AttributeError:
         geometry_col = None
+        crs = None
 
     df.update(df_tmp, overwrite=False)  # Update function breaks GeoDataFrame
 
     if geometry_col is not None:
         df.set_geometry(geometry_col, inplace=True)  # Restore geometry column
+        df.set_crs(crs, inplace=True)
 
     if col_heated is not None:
         # Set heat demand of non-heated buildings to zero
@@ -1640,7 +1675,7 @@ def calculate_avg_level_height(
 
 def calculate_levels_from_height(
         gdf, col_height, col_levels='building:levels', level_height=3.5,
-        limit=None, decimals=1):
+        upper=None, lower=1, decimals=1):
     """Calculate the number of levels per building from the height.
 
     Given the height of a building in column 'col_height' and the
@@ -1654,7 +1689,7 @@ def calculate_levels_from_height(
     gdf.loc[gdf[col_levels].isna(), col_levels] = (
         gdf[col_height]
         .div(level_height)
-        .clip(lower=1, upper=limit)
+        .clip(lower=lower, upper=upper)
         .round(decimals))
     # print(gdf[col_levels].describe())
     return gdf
@@ -1681,13 +1716,20 @@ def calculate_building_areas(
     the total number of levels. Otherwise, col_levels is assumed to be
     a single column name that has the total number of floors. If it does
     not exist, the default number of levels will be stored in that column.
+
+    TODO: Maybe count roof:levels only with a factor like 0.5
     """
     if not isinstance(col_levels, list):
         col_levels = [col_levels]
 
     _col_levels = [col for col in col_levels if col in gdf.columns]
     if len(_col_levels) > 0:
-        make_columns_numeric(gdf, _col_levels, errors='raise')
+        try:
+            make_columns_numeric(gdf, _col_levels, errors='raise')
+        except ValueError as e:
+            logger.warning(f"Parsing the column(s) {_col_levels} caused "
+                           f"error (which is ignored): {e}")
+            make_columns_numeric(gdf, _col_levels, errors='coerce')
         gdf[col_levels[0]].fillna(levels_default, inplace=True)
         levels = gdf[_col_levels].sum(axis='columns', min_count=1)
 
@@ -1699,7 +1741,8 @@ def calculate_building_areas(
         levels = gdf[col_levels[0]]
 
     # Calculate Bruttogrundfläche from polygon area and number of floors
-    gdf['a_BGF'] = (gdf.area * levels).round(decimals)
+    # Use a minimum number of 1 levels for each building
+    gdf['a_BGF'] = (gdf.area * levels.clip(lower=1)).round(decimals)
 
     for A in area_list:
         gdf = convert_building_area(gdf, A_input='a_BGF', A_output=A, **kwargs)
@@ -2252,7 +2295,7 @@ def merge_touching_buildings_in_parcels(
         sort_columns (list): List of column names that are supposed to affect
         the sorting of the merged buildings, in addition to the building area.
         Only the information of the first building (after sorting) with the
-        same parcel_number are kept.
+        same parcel_text are kept.
 
         parcel_text_alt (str): Alternative column name to use for the parcel
         text definition, where the column 'parcel_text' is equal to the
@@ -2298,8 +2341,8 @@ def merge_touching_buildings_in_parcels(
     # polygon with the largest area, which is also heated.
     # To achieve that, we sort the buildings now, and use the aggfunc 'first'
     # when calling dissolve()
-    buildings = buildings.sort_values(by=sort_columns + ['area'],
-                                      ascending=False)
+    buildings = buildings.sort_values(
+        by=[parcel_text] + sort_columns + ['area'], ascending=False)
 
     # Use libpysal magic
     # 1: Create "weights" from the buildings with the same parcel text
@@ -2327,7 +2370,7 @@ def merge_touching_buildings_in_parcels(
     return buildings_merged
 
 
-def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
+def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
                    buffer_distance=200,
                    col_heat='e_th_total_kWh', figsize=(20, 10),
                    scheme='fisherjenkssampled', k=7,
@@ -2346,7 +2389,7 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
         Area that the hexgrid is constructed from. If None, the convex hull
         of gdf_buildings plus buffer of 'buffer_distance' is used.
     resolution : TYPE, optional
-        DESCRIPTION. The default is 5.
+        DESCRIPTION. H3 hex resolution. If none, a resolution is estimated.
     clip : TYPE, optional
         DESCRIPTION. The default is False.
     intensive_variables : TYPE, optional
@@ -2367,6 +2410,7 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
         DESCRIPTION.
 
     """
+    logger.info("Create hexgrid")
     if gdf_area is None:
         gdf_area = gpd.GeoDataFrame(
             geometry=[gdf_buildings
@@ -2378,18 +2422,16 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
             plot_geometries([gdf_area, gdf_buildings],
                             title="'Buffered' area used for hexgrid")
 
+    if resolution is None:
+        resolution = fit_hexgrid_resolution(gdf_area.area.sum())
+
     gdf_hex = tobler.util.h3fy(gdf_area,
                                resolution=resolution,
                                clip=clip)
+
     if gdf_hex.empty:
         raise ValueError("Choose a higher resolution than {} for the hexgrid".
                          format(resolution))
-
-    # plot_geometries([
-    #     gdf_area,
-    #     gdf_hex,
-    #     gdf_buildings,
-    #     ])
 
     if method == 'interpolation':
         gdf_hex_interp = tobler.area_weighted.area_interpolate(
@@ -2419,16 +2461,26 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
         gdf_hex_interp_plot = gdf_hex_interp.copy()
         gdf_hex_interp_plot[col_heat] *= 1/1000  # from kWh to MWh
 
+        def plot_recursive(k):
+            """Decrease the number of classes k until the plot is valid."""
+            try:
+                gdf_hex_interp_plot.plot(
+                    column=col_heat,
+                    ax=ax,
+                    scheme=scheme,
+                    k=k,  # Number of classes
+                    alpha=0.5,
+                    legend=True,
+                    legend_kwds=dict(title='Wärmebedarf [MWh]'),
+                    )
+            except ValueError as e:
+                k -= 1
+                if k > 0:
+                    plot_recursive(k)
+                else:
+                    raise e
         try:
-            gdf_hex_interp_plot.plot(
-                column=col_heat,
-                ax=ax,
-                scheme=scheme,
-                k=k,  # Number of classes
-                alpha=0.5,
-                legend=True,
-                legend_kwds=dict(title='Wärmebedarf [MWh]'),
-                )
+            plot_recursive(k)
         except ValueError as e:
             raise ValueError("Column '{}' is missing enough valid values "
                              "for plot".format(col_heat)) from e
@@ -2443,6 +2495,27 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=10, clip=False,
         save_geojson(gdf_hex_interp, file='buildings_hex', path=save_path)
 
     return gdf_hex_interp
+
+
+def fit_hexgrid_resolution(area):
+    """Get an estimated appropriate H3 resolution for the given area."""
+    # Define a logarithmic function to be fit to the data.
+    def func(x, a, b):
+        return a * np.log(x) + b
+
+    # Define some useful combinations of area and resolution
+    df_res = pd.Series({
+        448283.43868: 11,
+        2.125123e+07: 9,
+        3.260295e+08: 8,
+    })
+
+    # Fit the function to the data
+    coeff = np.polyfit(np.log(df_res.index.to_numpy()), df_res.values, 1)
+    # Get an estimated appropriate resolution for the given area
+    resolution = func(area, coeff[0], coeff[1])
+    resolution = round(max(min(resolution, 15), 0))
+    return resolution
 
 
 def add_basemap(ax, crs, provider='OSM'):
@@ -2525,6 +2598,18 @@ def add_height_from_3d_geometries(gdf, gdf_3d, columns):
 
     """
     return combine_buildings_and_parcels(gdf, gdf_3d, columns)
+
+
+def choose_random_thermal_load(gdf_buildings, low=10, high=50):
+    """Choose a random maximum thermal power for each building.
+
+    Set the column 'P_heat_max' to a random value between 10 and 50 kW
+    for all houses. This column is required for dhnx.
+    """
+    np.random.seed(42)
+    gdf_buildings['P_heat_max'] = \
+        np.random.randint(low, high, size=len(gdf_buildings))
+    return gdf_buildings
 
 
 # Section "OpenStreetMap downloads"
@@ -2626,8 +2711,7 @@ def download_buildings_from_osm(
                       .convex_hull],
             crs=gdf_polygon.crs)
 
-    gdf_polygon.to_crs(epsg=4326, inplace=True)  # make it work with osmnx
-    polygon = gdf_polygon.geometry[0]
+    polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
     gdf = ox.geometries_from_polygon(polygon, tags=building_tags)
 
     # Convert to target crs
@@ -2660,18 +2744,6 @@ def download_buildings_from_osm(
     return gdf
 
 
-def choose_random_thermal_load(gdf_buildings, low=10, high=50):
-    """Choose a random maximum thermal power for each building.
-
-    Set the column 'P_heat_max' to a random value between 10 and 50 kW
-    for all houses. This column is required for dhnx.
-    """
-    np.random.seed(42)
-    gdf_buildings['P_heat_max'] = \
-        np.random.randint(low, high, size=len(gdf_buildings))
-    return gdf_buildings
-
-
 def download_streets_from_osm(
         gdf_polygon,
         highway_keys=[
@@ -2690,6 +2762,7 @@ def download_streets_from_osm(
             ],
         crs="EPSG:3857",
         show_plot=False,
+        dropna_tresh=None,
         ):
     """Download street network data from OpenStreetMap.
 
@@ -2701,28 +2774,57 @@ def download_streets_from_osm(
     Args:
         gdf_polygon (GeoDataFrame): An object defining the selection area
 
-        highway_keys (list): List of osm highway tags or 'True' for
+        highway_keys (list): List of osm highway tags or empty list for
         all highway objects (but can include points)
+
+        dropna_tresh (int): The input 'thresh' for df.dropna(). If not None,
+        dropna() is called, allowing to remove all columns that have only
+        a few entries. This can reduce the number of (mostly empty) columns
+        returned dramatically. If dropna_tresh < 1.0, it is multiplied with
+        the length of the DataFrame. I.e. dropna_tresh = 0.02 means
+        all columns with less than 2% entries are discarded.
 
     """
     logger.info("Download street data from OpenStreetMap")
-    streets = dict({'highway': highway_keys})
 
     if len(gdf_polygon) > 1:
-        raise ValueError("Area selection can only be a single polygon")
+        gdf_polygon = gpd.GeoDataFrame(
+            geometry=[gdf_polygon
+                      .unary_union],
+            crs=gdf_polygon.crs)
+    polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
 
-    gdf_polygon.to_crs(epsg=4326, inplace=True)  # make it work with osmnx
-    polygon = gdf_polygon.geometry[0]
+    # Download the street network data from OpenStreetMap
+    streets = dict({'highway': highway_keys})
+    # Option 1) Create GeoDataFrame object from the polygon
+    # gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
+
+    # Option 2) Download as a graph and convert to GeoDataFrame
+    # Gives more options to use osmnx functions for simplifying the network
+    if len(highway_keys) > 0:
+        key, values = list(streets.items())[0]
+        custom_filter = f'[\"{key}\"~\"{"|".join(values)}\"]'
+        network_type = None
+    else:
+        network_type = 'all'
+        custom_filter = None
+
+    graph = ox.graph_from_polygon(
+        polygon,
+        simplify=True,
+        retain_all=False,  # retain only largest connected component for dhnx
+        network_type=network_type,
+        custom_filter=custom_filter,
+        )
+    # graph = ox.utils_graph.get_largest_component(graph, strongly=True)
+    gdf_lines_streets = ox.graph_to_gdfs(graph, nodes=False)
 
     if show_plot:
-        # Download the street network data from OpenStreetMap
-        graph = ox.graph_from_polygon(polygon, network_type='drive_service')
-        ox.plot_graph(graph)
+        # ox.plot_graph(graph)
+        plot_geometries(gdf_lines_streets)
 
-    # Create GeoDataFrame object from the polygon
-    gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
     # Remove nodes column (that make somehow trouble for exporting .geojson)
-    gdf_lines_streets.drop(columns=['nodes'], inplace=True)
+    gdf_lines_streets.drop(columns=['nodes'], inplace=True, errors='ignore')
     # Filter out e.g. 'polygon' types that would cause issues with dhnx
     accepted_types = ['LineString', 'MultiLineString']
     gdf_lines_streets = gdf_lines_streets.loc[
@@ -2731,6 +2833,13 @@ def download_streets_from_osm(
     if crs is not None:
         # Convert to target crs
         gdf_lines_streets.to_crs(crs=crs, inplace=True)
+
+    if dropna_tresh is not None:
+        if dropna_tresh < 1:  # Interpret as a relative threshold
+            dropna_tresh = int(len(gdf_lines_streets) * dropna_tresh)
+        gdf_lines_streets.dropna(axis='columns', thresh=dropna_tresh,
+                                 inplace=True)
+
     return gdf_lines_streets
 
 
@@ -2801,7 +2910,7 @@ def assign_random_producer_building(gdf_houses, seed=42):
     return gdf_houses, gdf_prod
 
 
-def run_dhnx(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
+def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
              path_invest_data='invest_data',
              df_load_ts_slice=None,
@@ -2825,7 +2934,7 @@ def run_dhnx(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         DESCRIPTION.
     save_path : TYPE, optional
         DESCRIPTION. The default is './out'.
-    show_plots : TYPE, optional
+    show_plot : TYPE, optional
         DESCRIPTION. The default is True.
     path_invest_data : TYPE, optional
         DESCRIPTION. The default is 'invest_data'.
@@ -2898,7 +3007,8 @@ def run_dhnx(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         os.makedirs(os.path.dirname(save_path))
     for filename, gdf in tn_input.items():
         try:
-            save_geojson(gdf, file=filename, path=save_path)
+            save_geojson(gdf, file=filename, path=save_path,
+                         type_errors='coerce')
         except Exception as e:
             print(gdf)
             breakpoint()
@@ -3005,10 +3115,11 @@ def run_dhnx(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         # network.components['forks'].plot(ax=ax, color='grey', markersize=.5)
         # gdf_pipes[gdf_pipes['capacity'] > 0].plot(ax=ax, color='blue',
         #                                           linewidth=0.1)
-        gdf_plot = pd.concat([gdf_poly_gen, gdf_poly_houses],
-                              keys=['Producer', 'Consumer'],
-                              names=['role']
-                              ).reset_index().to_crs(gdf_pipes.crs)
+        gdf_plot = pd.concat([gdf_poly_gen.to_crs(gdf_poly_houses.crs),
+                              gdf_poly_houses],
+                             keys=['Producer', 'Consumer'],
+                             names=['role']
+                             ).reset_index().to_crs(gdf_pipes.crs)
         gdf_plot.plot(ax=ax, column='role', legend=True)
 
         gdf_pipes[gdf_pipes['DN'] > 0].plot(ax=ax, column='DN',
@@ -3358,10 +3469,13 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
     return gdf, df_load_ts_slice
 
 
-def lpagg_get_max_power_slice(df_load_ts, buffer=2, show_plot=True):
+def lpagg_get_max_power_slice(df_load_ts, buffer=0, show_plot=True):
     """Get the time slice with the maximum thermal power from lpagg.
 
     This time slice can be used as input for dhnx.
+
+    Parameters:
+        buffer (float): Hours of "buffer" time to create around each peak time
     """
     from pandas.tseries.frequencies import to_offset
 
