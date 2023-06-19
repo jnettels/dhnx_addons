@@ -61,7 +61,7 @@ dependencies:
     - nose
 
     # pandapipes dependencies
-    deepdiff
+    - deepdiff
 
 
 # run manual pip installations afterwards 
