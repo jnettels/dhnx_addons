@@ -146,8 +146,8 @@ def main():
     """Run an example main method."""
     setup()
     logger.info("Welcome to the 'DHNx Addons' example main method")
-    workflow_example_openstreetmap(show_plot=True)
-    # workflow_example_openstreetmap(show_plot=False)
+    # workflow_example_openstreetmap(show_plot=True)
+    workflow_example_openstreetmap(show_plot=False)
 
 
 def setup(log_level='INFO'):
@@ -251,7 +251,7 @@ def workflow_example_openstreetmap(
         solver_cmdline_options={  # gurobi
             # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10
             # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0
-            'seconds': 60 * 10 * 1,  # (seconds of maximum runtime) (cbc)
+            'seconds': 60 * 20 * 1,  # (seconds of maximum runtime) (cbc)
             # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
             'TimeLimit': 60 * 10 * 1,  # (seconds of maximum runtime) (gurobi)
             # 'TimeLimit': 60 * 60 * 1,  # (seconds of maximum runtime) (gurobi)
@@ -267,8 +267,8 @@ def workflow_example_openstreetmap(
     if show_plot:
         plot_geometries([gdf_houses, gdf_prod, gdf_pipes], plot_basemap=True)
 
-    print(gdf_houses)
-    print(gdf_pipes)
+    print(gdf_houses.head())
+    print(gdf_pipes.head())
 
     pandapipes_run(network, gdf_pipes, df_DN, show_plot=show_plot)
 
@@ -3479,7 +3479,6 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
     # a constant value for the substation, we can a first idea of the hydraulic
     # feasibility of the drafted piping system, and we can check, if the
     # temperature at the consumers is sufficiently high.
-
     pp_net = pp.create_empty_network(fluid="water")
 
     for index, fork in forks.iterrows():
