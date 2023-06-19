@@ -2,10 +2,10 @@
 # conda init powershell
 
 # This file may be used to create an environment using:
-# $ conda create --name <env> --file <this file>
+# $ conda create --name <env> --file <this file> -c conda-forge -c jnettels
 
 # Or install into an existing environment with:
-# conda install --file  <this file>
+# conda install --file requirements.txt -c conda-forge -c jnettels
 
 pandas
 numpy
@@ -36,3 +36,6 @@ addict
 blinker
 dill
 nose
+
+# pandapipes dependencies
+deepdiff

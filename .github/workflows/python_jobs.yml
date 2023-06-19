@@ -40,6 +40,10 @@ jobs:
         git checkout fix/logger-usage
         pip install -e .
 
+    - name: Install other pip packages
+      run: |
+        pip install pandapipes
+
     - name: Install special demandlib branch from GitHub
       run: |
         git clone https://github.com/jnettels/demandlib

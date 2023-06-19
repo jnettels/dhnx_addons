@@ -60,6 +60,10 @@ dependencies:
     - dill
     - nose
 
+    # pandapipes dependencies
+    deepdiff
+
+
 # run manual pip installations afterwards 
 # check with dry run first, to install missing packages with conda
 # pip install oemof.network oemof.solph oemof.tools --dry-run
@@ -73,3 +77,6 @@ dependencies:
 #
 # As of May 2023, it should be save to install dhnx 0.0.3 directly
 # pip install dhnx==0.0.3 --dry-run
+
+# Pandapipes needs to be installed from pip
+# pip install pandapipes --dry-run

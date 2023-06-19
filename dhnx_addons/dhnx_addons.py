@@ -112,7 +112,7 @@ except ImportError as e:
                    "pip install dhnx==0.0.3")
 if parse_version(dhnx.__version__) < parse_version("0.0.3"):
     raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
-                      ") is different from the tested version (0.0.3)")
+                      ") is lower than the tested version (0.0.3)")
 
 try:
     import contextily
@@ -134,13 +134,20 @@ except ImportError as e:
     logger.warning("Optional dependency 'demandlib' can be installed from "
                    "'https://github.com/jnettels/demandlib'")
 
+try:
+    import pandapipes
+except ImportError as e:
+    logger.exception(e)
+    logger.warning("Optional dependency 'pandapipes' can be installed from "
+                   "'pip install pandapipes'")
+
 
 def main():
     """Run an example main method."""
     setup()
-    logger.info("Welcome to the example main method")
-    # workflow_example_openstreetmap()
-    workflow_example_openstreetmap(show_plot=False)
+    logger.info("Welcome to the 'DHNx Addons' example main method")
+    workflow_example_openstreetmap(show_plot=True)
+    # workflow_example_openstreetmap(show_plot=False)
 
 
 def setup(log_level='INFO'):
@@ -227,7 +234,7 @@ def workflow_example_openstreetmap(
         save_geojson(gdf_streets, 'streets_input', path=save_path,
                      type_errors='coerce')
 
-    gdf_pipes, df_pipes = dhnx_run(
+    dhnx_results = dhnx_run(
         gdf_streets, gdf_prod, gdf_houses,
         save_path=save_path,
         show_plot=show_plot,
@@ -252,15 +259,22 @@ def workflow_example_openstreetmap(
         },
         )
 
+    gdf_pipes = dhnx_results['gdf_pipes']
+    df_pipes = dhnx_results['df_pipes']
+    network = dhnx_results['network']
+    df_DN = dhnx_results['df_DN']
+
     if show_plot:
         plot_geometries([gdf_houses, gdf_prod, gdf_pipes], plot_basemap=True)
 
     print(gdf_houses)
     print(gdf_pipes)
 
+    pandapipes_run(network, gdf_pipes, df_DN, show_plot=show_plot)
+
 
 def workflow_default(buildings, show_plot=True):
-    """Run all the functions with default values in correct order.
+    """Run many of the functions with default values in correct order.
 
     This is meant as an example on how to use these functions.
     """
@@ -309,7 +323,7 @@ def workflow_default(buildings, show_plot=True):
 
 
 def load_example_area(crs='epsg:4647'):
-    # Define a bounding box polygon from a list of lat/lon coordinates
+    """Load example area defined by a list of lat/lon coordinates."""
     bbox = [(9.1008896, 54.1954005),
             (9.1048374, 54.1961024),
             (9.1090996, 54.1906397),
@@ -3017,6 +3031,11 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Part III: Initialise the ThermalNetwork and perform the Optimisation
 
+    # Create or overwrite the input file "invest_data/network/pipes.csv"
+    df_DN, constants_costs, constants_loss = (
+        calc_lineralized_pipe_input(show_plot=show_plot))
+    export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
+
     # initialize a ThermalNetwork
     network = dhnx.network.ThermalNetwork()
 
@@ -3079,12 +3098,13 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         settings["frequence"] = pd.infer_freq(df_load_ts_slice.index)
 
     # perform the investment optimisation
-    # try:
-    network.optimize_investment(invest_options=invest_opt, **settings)
-    # except Exception as e:
-    #     logger.error(str(e))
-    #     breakpoint()
-    #     logger.error(str(e))
+    try:
+        network.optimize_investment(invest_options=invest_opt, **settings)
+    except ValueError as e:
+        logger.exception(e)
+        breakpoint()
+        logger.error("The district heating grid network optimization "
+                     "failed with an error")
 
     # Part IV: Check the results #############
 
@@ -3106,7 +3126,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     gdf_pipes = network.components['pipes']
     gdf_pipes = gdf_pipes.join(results_edges, rsuffix='results_')
 
-    gdf_pipes = apply_DN(gdf_pipes, save_path)  # Apply DN from capacity
+    gdf_pipes = apply_DN(gdf_pipes, df_DN, save_path)  # Apply DN from capacity
+    gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
 
     if show_plot:
         # plot output after processing the geometry
@@ -3138,7 +3159,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     save_geojson(gdf_pipes, file='pipes_result', path=save_path)
     save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
 
-    # Save info about pipes
+    # Save grouped info about pipes
     df_pipes = gdf_pipes.copy()
     df_pipes = df_pipes[df_pipes['DN'] > 0]
     df_pipes.replace(['DL', 'GL'], 'Verteilleitung', inplace=True)
@@ -3149,7 +3170,13 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     df_pipes = df_pipes[['length']]
     save_excel(df_pipes, os.path.join(save_path, 'WN_pipes.xlsx'))
 
-    return gdf_pipes, df_pipes
+    return_dict = {'network': network,
+                   'gdf_pipes': gdf_pipes,
+                   'df_pipes': df_pipes,
+                   'df_DN': df_DN,
+                   }
+
+    return return_dict
 
 
 def get_installed_solver(auto_install_cbc=True):
@@ -3174,22 +3201,136 @@ def get_installed_solver(auto_install_cbc=True):
 # Section "DHNX Postprocessing"
 # Use these functions on results from DHNX
 
+def calc_lineralized_pipe_input(
+        path_pipe_data="input/Pipe_data.csv",
+        T_FF=80, T_RF=50, T_ground=10, dP_max=150,
+        show_plot=False):
+    # ## b) Pre-calculate the hydraulic parameter
 
-def apply_DN(gdf_pipes=None, save_path=".", T_FF=80, T_RF=50):
+    # Besides the geometries, we need the techno-economic data for the
+    # investment optimisation of the DHS piping network. Therefore, we load
+    # the pipes data table. This is the information you need from your
+    # manufacturer / from your project.
+    if os.path.splitext(path_pipe_data)[1] == '.xlsx':
+        df = pd.read_excel(path_pipe_data)
+    else:
+        df = pd.read_csv("input/Pipe_data.csv", sep=",")
+
+    # This is an example of input data. The Roughness refers to the roughness of
+    # the inner surface and depends on the material (steel, plastic). The U-value
+    # and the costs refer to the costs of the whole pipeline trench, so including
+    # forward and return pipelines. The design process of DHNx is based on
+    # a maximum pressure drop per meter as design criteria:
+    df["Max delta p [Pa/m]"] = dP_max
+
+    # You could also define the maximum pressure drop individually for each DN
+    # number.
+
+    # As further assumptions, you need to estimate the operation temperatures
+    # of the district heating network in the design case:
+    df["T_forward [°C]"] = T_FF
+    df["T_return [°C]"] = T_RF
+    df['T_mean [°C]'] = df[['T_forward [°C]', 'T_return [°C]']].mean(
+        axis='columns')
+    df["T_ground [°C]"] = T_ground
+
+    df = calc_pipes_p_max(df)
+
+    # The last step is the linearisation of the cost  and loss parameter for
+    # the DHNx optimisation (which is based on the MILP optimisation package
+    # oemof-solph)
+
+    # It is possible to use different accuracies: you could linearize the cost
+    # and loss values with 1 segment, or many segment, or you can also perform
+    # an optimisation with discrete DN numbers (which is of course
+    # computationally more expensive).
+    # See also the DHNx example "discrete_DN_numbers"
+
+    # Here follows a linear approximation with 1 segment
+    constants_costs = np.polyfit(df['P_max [kW]'], df['Costs [€/m]'], 1)
+    constants_loss = np.polyfit(df['P_max [kW]'], df['P_loss [kW/m]'], 1)
+
+    if show_plot:
+        # Plot the economic assumptions:
+        for constants, col_y in zip(
+                [constants_costs, constants_loss],
+                ["Costs [€/m]", 'P_loss [kW/m]']
+                ):
+            x_min = df['P_max [kW]'].min()
+            x_max = df['P_max [kW]'].max()
+            y_min = constants[0] * x_min + constants[1]
+            y_max = constants[0] * x_max + constants[1]
+
+            _, ax = plt.subplots()
+            x = df['P_max [kW]']
+            y = df[col_y]
+            ax.plot(x, y, lw=0, marker="o", label="DN numbers",)
+            ax.plot(
+                [x_min, x_max], [y_min, y_max],
+                ls=":", color='r', marker="x"
+            )
+            ax.set_xlabel("Transport capacity [kW]")
+            ax.set_ylabel(col_y)
+            plt.title(
+                "Linear approximation of {} in district heating \n"
+                "pipelines based on maximum pressure drop "
+                "of {:.0f} Pa/m".format(col_y, df["Max delta p [Pa/m]"][0])
+            )
+            plt.legend()
+            plt.ylim(0, None)
+            plt.grid(ls=":")
+            plt.show()
+
+    return df, constants_costs, constants_loss
+
+
+def export_lineralized_pipe_input(df, constants_costs, constants_loss):
+    """Create and export the pipes input settings to the expected location.
+
+    See DHNx documentation for details about these settings.
+    """
+    df_pipes = pd.DataFrame(
+        {
+            "label_3": "pipe-generic",
+            "active": 1,
+            "nonconvex": 1,
+            "l_factor": constants_loss[0],
+            "l_factor_fix": constants_loss[1],
+            "cap_max": df['P_max [kW]'].max(),
+            "cap_min": df['P_max [kW]'].min(),
+            "capex_pipes": constants_costs[0],
+            "fix_costs": constants_costs[1],
+        }, index=[0],
+    )
+
+    # Export the optimisation parameter of the dhs pipelines to the investment
+    # data and replace the default csv file.
+    df_pipes.to_csv(
+        "invest_data/network/pipes.csv", index=False,
+    )
+    # The file above will be read by DHNx
+
+
+def apply_DN(gdf_pipes, df_DN=None, save_path=".",
+             T_FF=80, T_RF=50, T_ground=10):
     """Apply norm diameter of pipes from capacity."""
-    df_DN = pd.DataFrame(
-        {'Bezeichnung [DN]': [25, 32, 40, 50, 63, 75, 90, 110, 125,
-                              160, 200, 250, 300, 350, 400, 500, 600]})
+    if df_DN is None:
+        # If no pipes data is given, calculate default values here
+        df_DN = pd.DataFrame(
+            {'DN': [25, 32, 40, 50, 63, 75, 90, 110, 125,
+                    160, 200, 250, 300, 350, 400, 500, 600]})
 
-    df_DN['Innendurchmesser [m]'] = df_DN['Bezeichnung [DN]']/1000
-    df_DN['Max delta p [Pa/m]'] = 100
-    df_DN['Rauhigkeit [mm]'] = 0.01
-    df_DN['T_Vorlauf [°C]'] = T_FF  # °C forward flow
-    df_DN['T_Rücklauf [°C]'] = T_RF  # °C return flow
-    df_DN['Temperaturniveau [°C]'] = (
-        (df_DN['T_Vorlauf [°C]'] + df_DN['T_Rücklauf [°C]']) / 2)
+        df_DN['Inner diameter [m]'] = df_DN['DN']/1000
+        df_DN['Max delta p [Pa/m]'] = 150
+        df_DN['Roughness [mm]'] = 0.01
+        df_DN['T_forward [°C]'] = T_FF  # °C forward flow
+        df_DN['T_return [°C]'] = T_RF  # °C return flow
+        df_DN['T_mean [°C]'] = (
+            (df_DN['T_forward [°C]'] + df_DN['T_return [°C]']) / 2)
+        df_DN["T_ground [°C]"] = T_ground
 
-    df_DN = calc_pipes_p_max(df_DN)
+        df_DN = calc_pipes_p_max(df_DN)
+
     if save_path is not None:
         df_DN.to_excel(os.path.join(save_path, 'DN_table.xlsx'))
 
@@ -3209,7 +3350,7 @@ def apply_DN(gdf_pipes=None, save_path=".", T_FF=80, T_RF=50):
                 index = df_DN[df_DN["P_max [kW]"] >= capacity].sort_values(
                     by=["P_max [kW]"]).index[0]
 
-            gdf_pipes.loc[idx, 'DN'] = df_DN.loc[index, "Bezeichnung [DN]"]
+            gdf_pipes.loc[idx, 'DN'] = df_DN.loc[index, "DN"]
 
         elif capacity == 0:
             continue
@@ -3217,29 +3358,273 @@ def apply_DN(gdf_pipes=None, save_path=".", T_FF=80, T_RF=50):
     return gdf_pipes
 
 
+def get_total_costs_and_losses(gdf_pipes, df_DN):
+    # Rename the values resulting from the linearization
+    gdf_pipes.rename(columns={'costs': 'Cost_lin [€]',
+                              'losses': 'P_loss_lin [kW]'},
+                     inplace=True)
+    # Create a temporary df (with more columns than we need)
+    _gdf_pipes = gdf_pipes.join(df_DN.set_index('DN'), on='DN', how='left')
+    # gdf_pipes.head()
+    # _gdf_pipes.head()
+    # Calculate the total costs and losses from specifics values and length
+    gdf_pipes['Cost [€]'] = _gdf_pipes['Costs [€/m]'] * gdf_pipes.length
+    gdf_pipes['P_loss [kW]'] = _gdf_pipes['P_loss [kW/m]'] * gdf_pipes.length
+    return gdf_pipes
+
+
 def calc_pipes_p_max(df):
     """Calculate maximum capacity of district heating pipes."""
+    # Calculate the maximum flow velocity
     df['v_max [m/s]'] = df.apply(
         lambda row: dhnx.optimization.precalc_hydraulic.v_max_bisection(
-            d_i=row['Innendurchmesser [m]'],
-            T_average=row['Temperaturniveau [°C]'],
-            k=row['Rauhigkeit [mm]'],
+            d_i=row['Inner diameter [m]'],
+            T_average=row['T_mean [°C]'],
+            k=row['Roughness [mm]'],
             p_max=row['Max delta p [Pa/m]']), axis=1)
 
-    df['Massenstrom [kg/s]'] = df.apply(
+    # Calculate the maximum mass flow per pipe
+    df['Mass flow [kg/s]'] = df.apply(
         lambda row: dhnx.optimization.precalc_hydraulic.calc_mass_flow(
-            v=row['v_max [m/s]'], di=row['Innendurchmesser [m]'],
-            T_av=row['Temperaturniveau [°C]'],
+            v=row['v_max [m/s]'], di=row['Inner diameter [m]'],
+            T_av=row['T_mean [°C]'],
             ), axis=1)
 
+    # Calculate the maximum thermal transport capacity of each DN type
     df['P_max [kW]'] = df.apply(
-        lambda row: 0.001*dhnx.optimization.precalc_hydraulic.calc_power(
-            T_vl=row['T_Vorlauf [°C]'],
-            T_rl=row['T_Rücklauf [°C]'],
-            mf=row['Massenstrom [kg/s]']
-            ), axis=1)
+        lambda row: dhnx.optimization.precalc_hydraulic.calc_power(
+            T_vl=row['T_forward [°C]'],
+            T_rl=row['T_return [°C]'],
+            mf=row['Mass flow [kg/s]']
+            ) * 0.001,  # Unit conversion from W to kW
+        axis=1)
 
+    try:
+        df['P_loss [kW/m]'] = df.apply(
+            lambda row: dhnx.optimization.precalc_hydraulic.calc_pipe_loss(
+                temp_average=row["T_mean [°C]"],
+                u_value=row["U-value [W/mK]"],
+                temp_ground=row["T_ground [°C]"],
+            ) * 0.001,  # Unit conversion from W to kW
+            axis=1,
+        )
+    except KeyError as e:
+        logger.debug("Skip calculation of pipe losses due to missing input "
+                     "data: %s", str(e))
     return df
+
+
+def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
+    import pandapipes as pp
+    from CoolProp.CoolProp import PropsSI
+
+    # Part II: Simulation with pandapipes
+    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    # # Define the pandapipes parameters
+    pressure_net = 12  # [bar] (Pressure at the heat supply)
+    pressure_pn = 20
+    p = pressure_net * 100000  # pressure in [Pa]
+    v = 1.0  # [m/s] (Initial value for simulation?)
+
+    if df_DN is None:  # Use some default values
+        dT = 30  # [K]
+        feed_temp = 348  # 75 °C (Feed-in temperature at the heat supply)
+        ext_temp = 283  # 10 °C (temperature of the ground)
+    else:
+        # Assume that the following values are the same for all DN types
+        dT = (df_DN['T_forward [°C]'] - df_DN['T_return [°C]']).values[0]
+        feed_temp = df_DN['T_forward [°C]'].values[0] + 273.15  # K
+        ext_temp = df_DN['T_ground [°C]'].values[0] + 273.15  # K
+
+    cp = PropsSI('C', 'T', feed_temp, 'P', p, 'IF97::Water') * 0.001  # [kJ/(kg K)]
+    d = PropsSI('D', 'T', feed_temp, 'P', p, 'IF97::Water')  # [kg/m³]
+
+    # # Prepare the component tables of the DHNx network
+    forks = network.components['forks']
+    consumers = network.components['consumers']
+    producers = network.components['producers']
+    pipes = gdf_pipes.copy()
+
+    # prepare the consumers dataframe
+
+    # calculate massflow for each consumer and producer
+    consumers['massflow'] = consumers['P_heat_max'].apply(
+        lambda x: x / (cp * dT))
+
+    # prepare the pipes dataframe
+
+    # delete pipes with capacity of 0
+    pipes = pipes.drop(pipes[pipes['capacity'] == 0].index)
+    # reset the index to later on merge the pandapipes results, that
+    # do not know an 'id' or 'name' anymore
+    idx_name = pipes.index.name
+    if idx_name is None:
+        idx_name = 'index'
+    pipes = pipes.reset_index()
+
+    # add the data of technical data sheet with the DN numbers to the pipes table
+    pipes = pipes.join(df_DN[[
+        "DN", "Inner diameter [m]", "Roughness [mm]", "U-value [W/mK]",
+        "alpha [W/m2K]",
+    ]].set_index('DN'), on='DN')
+
+    # # Create the pandapipes model
+
+    # Now, we create the pandapipes network (pp_net).
+    # Note that we only model the forward pipeline system in this example and
+    # focus on the pressure losses due to the pipes (no pressure losses e.g.
+    # due to expansion bend and so on).
+    # However, if we assume the same pressure drop for the return pipes and add
+    # a constant value for the substation, we can a first idea of the hydraulic
+    # feasibility of the drafted piping system, and we can check, if the
+    # temperature at the consumers is sufficiently high.
+
+    pp_net = pp.create_empty_network(fluid="water")
+
+    for index, fork in forks.iterrows():
+        pp.create_junction(
+            pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
+            name=fork['id_full']
+        )
+
+    for index, consumer in consumers.iterrows():
+        pp.create_junction(
+            pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
+            name=consumer['id_full']
+        )
+
+    for index, producer in producers.iterrows():
+        pp.create_junction(
+            pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
+            name=producer['id_full']
+        )
+
+    # create sink for consumers
+    for index, consumer in consumers.iterrows():
+        pp.create_sink(
+            pp_net,
+            junction=pp_net.junction.index[
+                pp_net.junction['name'] == consumer['id_full']][0],
+            mdot_kg_per_s=consumer['massflow'],
+            name=consumer['id_full']
+        )
+
+    # create source for producers
+    for index, producer in producers.iterrows():
+        pp.create_source(
+            pp_net,
+            junction=pp_net.junction.index[
+                pp_net.junction['name'] == producer['id_full']][0],
+            mdot_kg_per_s=consumers['massflow'].sum(),
+            name=producer['id_full']
+        )
+
+    # EXTRENAL GRID as slip (Schlupf)
+    for index, producer in producers.iterrows():
+        pp.create_ext_grid(
+            pp_net,
+            junction=pp_net.junction.index[
+                pp_net.junction['name'] == producer['id_full']][0],
+            p_bar=pressure_net,
+            t_k=feed_temp,
+            name=producer['id_full'],
+        )
+
+    # create pipes
+    for index, pipe in pipes.iterrows():
+        pp.create_pipe_from_parameters(
+            pp_net,
+            from_junction=pp_net.junction.index[
+                pp_net.junction['name'] == pipe['from_node']][0],
+            to_junction=pp_net.junction.index[
+                pp_net.junction['name'] == pipe['to_node']][0],
+            length_km=pipe['length'] / 1000,  # convert to km
+            diameter_m=pipe["Inner diameter [m]"],
+            k_mm=pipe["Roughness [mm]"],
+            alpha_w_per_m2k=pipe["alpha [W/m2K]"],
+            text_k=ext_temp,
+            name=pipe[idx_name],
+        )
+
+    # # Execute the pandapipes simulation
+    pp.pipeflow(
+        pp_net, stop_condition="tol", iter=3, friction_model="colebrook",
+        mode="all", transient=False, nonlinear_method="automatic", tol_p=1e-3,
+        tol_v=1e-3,
+    )
+
+    print(pp_net.res_junction.head(n=8))
+    print(pp_net.res_pipe.head(n=8))
+
+    # # Example of exports of the results
+
+    # to excel
+    filepath = 'pandapipes_result/results_fine.xlsx'
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
+    with pd.ExcelWriter(filepath) as writer:
+        pipes.to_excel(
+            writer, sheet_name='pipes',
+            columns=[idx_name, 'type', 'from_node', 'to_node', 'length',
+                     'capacity', 'Cost [€]', 'P_loss [kW]',
+                     "Inner diameter [m]", "Roughness [mm]",
+                     'U-value [W/mK]', "alpha [W/m2K]", 'DN']
+        )
+        pp_net.res_pipe.to_excel(writer, sheet_name='pandapipes_pipes')
+        pp_net.res_junction.to_excel(writer, sheet_name='pandapipes_junctions')
+
+    # merge results of pipes to GeoDataFrame
+    pipes = pd.merge(
+        pipes, pp_net.res_pipe, left_index=True, right_index=True,
+        how='left'
+    )
+
+    # export the GeoDataFrames with the simulation results to .geojson
+    pipes.to_file('pandapipes_result/fine_pipes.geojson', driver='GeoJSON')
+
+    # # Plot the results of pandapipes simulation
+
+    # plots pressure of pipes' ending nodes
+    if show_plot:
+        _, ax = plt.subplots()
+        network.components['consumers'].plot(ax=ax, color='green')
+        network.components['producers'].plot(ax=ax, color='red')
+        network.components['forks'].plot(ax=ax, color='grey')
+        pipes.plot(
+            ax=ax,
+            column='p_to_bar',
+            legend=True, legend_kwds={'label': "Pressure [bar]",
+                                      'shrink': 0.5},
+            cmap='cividis',
+            linewidth=1,
+            zorder=2
+        )
+        plt.title('Pressure')
+        plt.tight_layout()
+        plt.show()
+
+        # plot temperature of pipes' ending nodes
+
+        _, ax = plt.subplots()
+        network.components['consumers'].plot(ax=ax, color='green')
+        network.components['producers'].plot(ax=ax, color='red')
+        network.components['forks'].plot(ax=ax, color='grey')
+        pipes.plot(
+            ax=ax,
+            column='t_to_k',
+            legend=True,
+            legend_kwds={'label': "Temperature [K]",
+                         'shrink': 0.5},
+            cmap='Wistia',
+            linewidth=1,
+            zorder=2
+        )
+        plt.title('Temperature')
+        plt.tight_layout()
+        plt.show()
+
+
 
 
 # Section "lpagg" (load profile aggregator)
@@ -3601,7 +3986,7 @@ def QGIS_test_python():
          'OUTPUT':'C:/Users/Nettelstroth/code_projects/bs-wärmeplan/src/Tiles/test.geojson'})
 
 
-def qgis_drape():
+def qgis_drape(path_input_layer, path_input_raster, path_output):
     """Run QGIS algorithm 'drape (set Z value from raster)'.
 
     This algorithm sets the z value of every vertex in the feature
@@ -3614,6 +3999,17 @@ def qgis_drape():
 
     https://opensourceoptions.com/blog/pyqgis-calculate-geometry-and-field-values-with-the-qgis-python-api/
 
+
+    path_input_layer (str):
+        Path to e.g. a file like pipes_result.geojson
+
+    path_input_raster (str):
+        Path to a raster file containing the height information, e.g.
+        a file like dgm200_utm32s.tif
+
+    path_output (str):
+        Path to the output file, e.g. pipes_result_draped.geojson
+
     """
     import subprocess
 
@@ -3624,13 +4020,13 @@ def qgis_drape():
         '--distance_units=meters',
         '--area_units=m2',
         '--ellipsoid=EPSG:7019',
-        r'--INPUT=C:\Users\Nettelstroth\code_projects\SIZ145_FirstTin\python\alkis\pipes_result.geojson',
-        r'--RASTER=C:\Users\Nettelstroth\code_projects\SIZ145_FirstTin\Qgis\Layer\DGM\dgm200.utm32s.geotiff\dgm200\dgm200_utm32s.tif',
+        f'--INPUT={path_input_layer}',
+        f'--RASTER={path_input_raster}',
         '--BAND=1',
         '--NODATA=0',
         '--SCALE=1',
         '--OFFSET=0',
-        r'--OUTPUT=C:\Users\Nettelstroth\code_projects\SIZ145_FirstTin\python\alkis\pipes_result_draped.geojson',
+        f'--OUTPUT={path_output}',
         ])
 
 
