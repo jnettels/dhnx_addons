@@ -155,8 +155,9 @@ def setup(log_level='INFO'):
     logger.setLevel(level=log_level.upper())  # Logger for this module
     # logging.getLogger('osmnx').setLevel(level='ERROR')
     # logging.getLogger('dhnx').setLevel(level='ERROR')
-    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s',
-                        datefmt='%H:%M:%S')
+    logging.basicConfig(
+        format='%(asctime)s %(module)-12s %(levelname)-8s %(message)s',
+        datefmt='%H:%M:%S')
 
 
 def workflow_example_openstreetmap(
@@ -230,7 +231,8 @@ def workflow_example_openstreetmap(
     save_geojson(gdf_prod, 'producers_polygon', path=save_path)
 
     if gdf_streets is None:
-        gdf_streets = download_streets_from_osm(gdf_area, dropna_tresh=0.01)
+        gdf_streets = download_streets_from_osm(
+            gdf_area, dropna_tresh=0.01, show_plot=show_plot)
         save_geojson(gdf_streets, 'streets_input', path=save_path,
                      type_errors='coerce')
 
@@ -249,9 +251,10 @@ def workflow_example_openstreetmap(
         method='boundary',
         solver=None,
         solver_cmdline_options={  # gurobi
-            # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10
-            # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0
-            'seconds': 60 * 20 * 1,  # (seconds of maximum runtime) (cbc)
+            # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10 (gurobi)
+            # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0 (gurobi)
+            'ratioGap': 0.01,  # (0.2 = 20% gap) default: 0 (cbc)
+            'seconds': 60 * 30 * 1,  # (seconds of maximum runtime) (cbc)
             # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
             'TimeLimit': 60 * 10 * 1,  # (seconds of maximum runtime) (gurobi)
             # 'TimeLimit': 60 * 60 * 1,  # (seconds of maximum runtime) (gurobi)
@@ -266,9 +269,6 @@ def workflow_example_openstreetmap(
 
     if show_plot:
         plot_geometries([gdf_houses, gdf_prod, gdf_pipes], plot_basemap=True)
-
-    print(gdf_houses.head())
-    print(gdf_pipes.head())
 
     pandapipes_run(network, gdf_pipes, df_DN, show_plot=show_plot)
 
@@ -2827,6 +2827,7 @@ def download_streets_from_osm(
         polygon,
         simplify=True,
         retain_all=False,  # retain only largest connected component for dhnx
+        clean_periphery=False,  # Otherwise roads might be cut off
         network_type=network_type,
         custom_filter=custom_filter,
         )
@@ -3582,14 +3583,13 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
     # export the GeoDataFrames with the simulation results to .geojson
     pipes.to_file('pandapipes_result/fine_pipes.geojson', driver='GeoJSON')
 
-    # # Plot the results of pandapipes simulation
-
-    # plots pressure of pipes' ending nodes
+    # Plot the results of pandapipes simulation
+    # Plots pressure of pipes' ending nodes
     if show_plot:
-        _, ax = plt.subplots()
+        _, ax = plt.subplots(figsize=(20, 10), dpi=300)
         network.components['consumers'].plot(ax=ax, color='green')
         network.components['producers'].plot(ax=ax, color='red')
-        network.components['forks'].plot(ax=ax, color='grey')
+        # network.components['forks'].plot(ax=ax, color='grey')
         pipes.plot(
             ax=ax,
             column='p_to_bar',
@@ -3603,12 +3603,11 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         plt.tight_layout()
         plt.show()
 
-        # plot temperature of pipes' ending nodes
-
-        _, ax = plt.subplots()
+        # Plot temperature of pipes' ending nodes
+        _, ax = plt.subplots(figsize=(20, 10), dpi=300)
         network.components['consumers'].plot(ax=ax, color='green')
         network.components['producers'].plot(ax=ax, color='red')
-        network.components['forks'].plot(ax=ax, color='grey')
+        # network.components['forks'].plot(ax=ax, color='grey')
         pipes.plot(
             ax=ax,
             column='t_to_k',
@@ -3623,7 +3622,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         plt.tight_layout()
         plt.show()
 
-
+    return pipes
 
 
 # Section "lpagg" (load profile aggregator)
