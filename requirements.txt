@@ -9,6 +9,7 @@
 
 pandas
 numpy
+numba
 geopandas
 matplotlib
 osmnx
