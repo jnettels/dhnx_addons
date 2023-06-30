@@ -2569,6 +2569,78 @@ def merge_touching_buildings_in_parcels(
     return buildings_merged
 
 
+def merge_with_test(df1, df2, on, find_closest_matches=False):
+    """Merge df1 and df2 with pd.merge() while searching for best matches.
+
+    If input are GeoDataFrames, the geometry of df1 is kept, while geometry
+    of df2 is dropped.
+
+    Parameters
+    ----------
+    df1 : DataFrame
+        ``left`` in ``pd.merge(left=df1, right=df2, on=on, how='left')``.
+    df2 : TYPE
+        ``right`` in ``pd.merge(left=df1, right=df2, on=on, how='left')``.
+    on : str
+        Column name to join on. Must be a single column
+    find_closest_matches : bool, optional
+        If True, the closest matches are searched for the rows that were not
+        merged. This can be quite slow, so it is only recommended
+        for debugging. The default is False.
+
+    Returns
+    -------
+    DataFrame
+        The merged DataFrame.
+
+    """
+    from fuzzywuzzy import process as fuzzywuzzy_process
+
+    # Find out which elements of df (the new data) cannot be matched to gdf
+    df_test = pd.merge(left=df1, right=df2, on=on, how='outer', indicator=True)
+    len_right_only = df_test['_merge'].value_counts().get('right_only', 0)
+    if len_right_only > 0:
+        logger.info("%s addresses in df2 could not be matched to df1",
+                    len_right_only)
+
+    # If df2 is a GeoDataFrame, we want to be able to plot it on a map.
+    # Keeping track of the geometry column is a little convoluted:
+    cols_keep = [on]
+    if isinstance(df2, gpd.GeoDataFrame):
+        if df2.geometry.name in df_test.columns:
+            cols_keep.append(df_test.geometry.name)
+        else:  # Assume df1 and df2 where renamed to geometry_x and geometry_y
+            cols_keep.append(df2.geometry.name + '_y')
+
+    # Create a (Geo)DataFrame with the rows that could not be merged
+    df_missing = df_test.loc[df_test['_merge'] == 'right_only', cols_keep]
+    try:  # Try to restore geometry
+        df_missing.set_geometry(df2.geometry.name + '_y', inplace=True)
+    except (ValueError, AttributeError):
+        pass
+
+    if not find_closest_matches:
+        logger.info("Missing matches are not tested for close matches")
+    else:
+        logger.info("Finding closest matches...")
+        # Isolate the missing addresses in df2 and find the closest match
+        # in df1 using 'fuzzywuzzy', in order to see if there are
+        # methodical errors
+
+        def search_match(row):
+            """For the given row, find the closest match in df1."""
+            highest = fuzzywuzzy_process.extractOne(row[on], df1[on])
+            return pd.Series([highest[0], highest[1]])  # match and score
+
+        df_missing[['match', 'score']] = df_missing.apply(search_match,
+                                                          axis='columns')
+
+    df = pd.merge(left=df1,
+                  right=df2.drop(columns="geometry", errors='ignore'),
+                  on=on, how='left').set_index(df1.index)
+    return df, df_missing
+
+
 def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
                    buffer_distance=200,
                    intensive_variables=None,
