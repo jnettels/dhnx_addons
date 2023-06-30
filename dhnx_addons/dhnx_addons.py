@@ -67,6 +67,8 @@ import re
 import io
 import json
 import logging
+import warnings
+from joblib import Memory
 from pkg_resources import parse_version
 import numpy as np
 import shapely
@@ -85,6 +87,10 @@ except ImportError:
     import cbc_installer  # local import for running dhnx_addons.py
 
 logger = logging.getLogger(__name__)  # Create a logger for this module
+
+# Define a memory to be used as a decorator, which enables caching for
+# the most expensive functions like lpagg_run and dhnx_run
+memory = Memory(location='cache', verbose=0)
 
 try:
     import fiona
@@ -151,13 +157,24 @@ def main():
 
 
 def setup(log_level='INFO'):
-    """Set up the logger."""
+    """Set up the logger and other settings."""
     logger.setLevel(level=log_level.upper())  # Logger for this module
     # logging.getLogger('osmnx').setLevel(level='ERROR')
     # logging.getLogger('dhnx').setLevel(level='ERROR')
     logging.basicConfig(
         format='%(asctime)s %(module)-12s %(levelname)-8s %(message)s',
         datefmt='%H:%M:%S')
+
+    # Loading the pandapipes library modifies global pandas options
+    # for printing dataframes. Set them back to the default values
+    # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.set_option.html
+    pd.set_option('display.max_rows', 60)  # default: 60
+    pd.set_option('display.max_columns', 0)  # default: 0
+
+    # Make a specific UserWarning by joblib.Memory silent.
+    # It warns about the caching action taking too long, which is fine.
+    warnings.filterwarnings(action='ignore', category=UserWarning,
+                            module='Memory')
 
 
 def workflow_example_openstreetmap(
@@ -236,7 +253,8 @@ def workflow_example_openstreetmap(
         save_geojson(gdf_streets, 'streets_input', path=save_path,
                      type_errors='coerce')
 
-    dhnx_results = dhnx_run(
+    # dhnx_run.clear()  # Clear cached results
+    network, gdf_pipes, df_pipes, df_DN = dhnx_run(
         gdf_streets, gdf_prod, gdf_houses,
         save_path=save_path,
         show_plot=show_plot,
@@ -261,11 +279,6 @@ def workflow_example_openstreetmap(
             # 'TimeLimit': 60 * 60 * 3,  # (seconds of maximum runtime)
         },
         )
-
-    gdf_pipes = dhnx_results['gdf_pipes']
-    df_pipes = dhnx_results['df_pipes']
-    network = dhnx_results['network']
-    df_DN = dhnx_results['df_DN']
 
     if show_plot:
         plot_geometries([gdf_houses, gdf_prod, gdf_pipes], plot_basemap=True)
@@ -2937,8 +2950,17 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              col_p_th='P_heat_max',
              solver=None,
              solver_cmdline_options=None,
+             path_pipe_data="input/Pipe_data.csv",
              ):
     """Run the dhnx (district heating networks) process.
+
+    This function uses a 'cache': The results from a run are stored in
+    a local folder and reused for as long as the input stays the same.
+    This can save a lot of time for repeated runs.
+    To enforce clearing the cache and running the function again, run
+    the following line of code before calling this function:
+
+    ``dhnx_run.clear()``
 
     Parameters
     ----------
@@ -3033,9 +3055,19 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     # Part III: Initialise the ThermalNetwork and perform the Optimisation
 
     # Create or overwrite the input file "invest_data/network/pipes.csv"
-    df_DN, constants_costs, constants_loss = (
-        calc_lineralized_pipe_input(show_plot=show_plot))
-    export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
+    if os.path.exists(path_pipe_data):
+        df_DN, constants_costs, constants_loss = (
+            calc_lineralized_pipe_input(
+                path_pipe_data=path_pipe_data,
+                T_FF=80, T_RF=50, T_ground=10, dP_max=150,
+                show_plot=show_plot))
+        export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
+    else:
+        logger.info("Provide a file '%s' with pipe properties per DN for "
+                    "a custom lineralized optimization input. File not found, "
+                    "using default pipe properties instead.", path_pipe_data)
+        df_DN = get_default_df_DN(T_FF=80, T_RF=50, T_ground=10,
+                                  save_path=save_path)
 
     # initialize a ThermalNetwork
     network = dhnx.network.ThermalNetwork()
@@ -3127,7 +3159,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     gdf_pipes = network.components['pipes']
     gdf_pipes = gdf_pipes.join(results_edges, rsuffix='results_')
 
-    gdf_pipes = apply_DN(gdf_pipes, df_DN, save_path)  # Apply DN from capacity
+    gdf_pipes = apply_DN(gdf_pipes, df_DN)  # Apply DN from capacity
     gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
 
     if show_plot:
@@ -3168,7 +3200,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     df_pipes = (df_pipes.set_index('type')
                 .groupby(['type', 'DN'])
                 .sum(numeric_only=True))
-    df_pipes = df_pipes[['length']]
+    # df_pipes = df_pipes[['length']]
     save_excel(df_pipes, os.path.join(save_path, 'WN_pipes.xlsx'))
 
     return_dict = {'network': network,
@@ -3177,7 +3209,26 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                    'df_DN': df_DN,
                    }
 
-    return return_dict
+    class DHNx_Return():
+        """Create an object for storing the return values."""
+        def __init__(self, network, gdf_pipes, df_pipes, df_DN):
+            self.network = network
+            self.gdf_pipes = gdf_pipes
+            self.df_pipes = df_pipes
+            self.df_DN = df_DN
+
+        def __str__(self):
+            return str(self.__class__) + ' containing:\n' + '\n'.join(
+                ('{}:\n{}'
+                 .format(item, self.__dict__[item]) for item in self.__dict__))
+
+    # Package the return values in a dedicated object. Using a dict would
+    # be more straightforward, but caused issues when trying to pickle it.
+    # dhnx_return = DHNx_Return(network, gdf_pipes, df_pipes, df_DN)
+    # Not in use, because this breaks the @memory.cache function.
+
+    # return dhnx_return
+    return network, gdf_pipes, df_pipes, df_DN
 
 
 def get_installed_solver(auto_install_cbc=True):
@@ -3312,29 +3363,30 @@ def export_lineralized_pipe_input(df, constants_costs, constants_loss):
     # The file above will be read by DHNx
 
 
-def apply_DN(gdf_pipes, df_DN=None, save_path=".",
-             T_FF=80, T_RF=50, T_ground=10):
-    """Apply norm diameter of pipes from capacity."""
-    if df_DN is None:
-        # If no pipes data is given, calculate default values here
-        df_DN = pd.DataFrame(
-            {'DN': [25, 32, 40, 50, 63, 75, 90, 110, 125,
-                    160, 200, 250, 300, 350, 400, 500, 600]})
+def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path="."):
+    """If no pipes data is given, calculate default values here."""
+    df_DN = pd.DataFrame(
+        {'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300]})
 
-        df_DN['Inner diameter [m]'] = df_DN['DN']/1000
-        df_DN['Max delta p [Pa/m]'] = 150
-        df_DN['Roughness [mm]'] = 0.01
-        df_DN['T_forward [°C]'] = T_FF  # °C forward flow
-        df_DN['T_return [°C]'] = T_RF  # °C return flow
-        df_DN['T_mean [°C]'] = (
-            (df_DN['T_forward [°C]'] + df_DN['T_return [°C]']) / 2)
-        df_DN["T_ground [°C]"] = T_ground
+    df_DN['Inner diameter [m]'] = df_DN['DN']/1000
+    df_DN['Max delta p [Pa/m]'] = 150
+    df_DN['Roughness [mm]'] = 0.01
+    df_DN['T_forward [°C]'] = T_FF  # °C forward flow
+    df_DN['T_return [°C]'] = T_RF  # °C return flow
+    df_DN['T_mean [°C]'] = (
+        (df_DN['T_forward [°C]'] + df_DN['T_return [°C]']) / 2)
+    df_DN["T_ground [°C]"] = T_ground
 
-        df_DN = calc_pipes_p_max(df_DN)
+    df_DN = calc_pipes_p_max(df_DN)
 
     if save_path is not None:
         df_DN.to_excel(os.path.join(save_path, 'DN_table.xlsx'))
 
+    return df_DN
+
+
+def apply_DN(gdf_pipes, df_DN):
+    """Apply norm diameter of pipesin gdf_pipes from capacity in df_DN."""
     # Now apply the norm diameter to the pipes dataframe
     gdf_pipes['DN'] = 0  # default for (near) zero capacities
 
@@ -3359,18 +3411,60 @@ def apply_DN(gdf_pipes, df_DN=None, save_path=".",
     return gdf_pipes
 
 
-def get_total_costs_and_losses(gdf_pipes, df_DN):
+def get_total_costs_and_losses(gdf_pipes, df_DN, f_length_cost=1,
+                               f_length_loss=2,
+                               ):
+    """Calculate total pipe costs and heat losses from specific values.
+
+    If the columns ``'Costs [€/m]'`` and/or ``'P_loss [kW/m]'`` are present in
+    ``df_DN``, their respective total values are calculated for each pipe
+    segment in ``gdf_pipes``.
+
+    Please carefully consider the factors ``f_length_cost`` and
+    ``f_length_loss``. The length used for calculation is the single length
+    of either forward or return pipes ('Trassenmeter') multiplied with this
+    factor.
+    This is necessary, because the given cost and loss data may describe
+    a single actual pipe, of which two are needed for forward and return.
+    In this case, the factor needs to be set to ``2``. If the input
+    data describes a double pipe and/or relates to 'Trassenmeter', the factor
+    ``1`` is appropriate.
+
+    Per default, it is assumed that ``'P_loss [kW/m]'`` describes the losses
+    of a single pipe (either forward or return), requiring the factor 2.
+    However, ``'Costs [€/m]'`` are commonly given as a total value for
+    materials and labor per trench length ('Trassenmeter'), requiring
+    the factor 1.
+
+    If the factors are already present as columns in ``df_DN``, those
+    values are used instead.
+    """
+    # Store the assumed/selected length factor
+    if 'f_length_loss' not in df_DN.columns:
+        df_DN['f_length_loss'] = f_length_loss
+    if 'f_length_cost' not in df_DN.columns:
+        df_DN['f_length_cost'] = f_length_cost
+
     # Rename the values resulting from the linearization
     gdf_pipes.rename(columns={'costs': 'Cost_lin [€]',
                               'losses': 'P_loss_lin [kW]'},
                      inplace=True)
     # Create a temporary df (with more columns than we need)
     _gdf_pipes = gdf_pipes.join(df_DN.set_index('DN'), on='DN', how='left')
-    # gdf_pipes.head()
-    # _gdf_pipes.head()
+
     # Calculate the total costs and losses from specifics values and length
-    gdf_pipes['Cost [€]'] = _gdf_pipes['Costs [€/m]'] * gdf_pipes.length
-    gdf_pipes['P_loss [kW]'] = _gdf_pipes['P_loss [kW/m]'] * gdf_pipes.length
+    try:
+        gdf_pipes['Cost [€]'] = (_gdf_pipes['Costs [€/m]']
+                                 * gdf_pipes.length
+                                 * _gdf_pipes['f_length_cost'])
+    except KeyError as e:
+        logger.error("Cost not calculated due to missing data: %s", e)
+    try:
+        gdf_pipes['P_loss [kW]'] = (_gdf_pipes['P_loss [kW/m]']
+                                    * gdf_pipes.length
+                                    * _gdf_pipes['f_length_loss'])
+    except KeyError as e:
+        logger.error("Losses not calculated due to missing data: %s", e)
     return gdf_pipes
 
 
@@ -3415,18 +3509,41 @@ def calc_pipes_p_max(df):
     return df
 
 
-def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
+def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
+                   save_path='result_pandapipes'):
+    r"""Run pandapipes simulation with result network from dhnx.
+
+    While DHNx uses a thermal transmittance (U-value) in unit W/mK for
+    heat loss calcultion, pandapipes requires a heat transfer coefficient
+    input 'alpha_w_per_m2k'
+
+    U-value as given by pipe manufacturers typically describes the W of
+    thermal loss per m pipe length and K temperature difference between mean
+    operational temperature and external (ground) temperature:
+
+    :math:`\frac{P_{loss}}{l} = (T_{op} - T_{ext}) \cdot U`
+
+    As per documentation of pandapipes the losses are calculated as:
+
+    :math:`P_{loss} = \alpha\cdot l \cdot\pi\cdot d \cdot (T_{op} - T_{ext})`
+
+    It is also mentioned that :math:`d` describes the inner diameter.
+    https://pandapipes.readthedocs.io/en/latest/components/pipe/pipe_component.html
+
+    Therefore the area referenced by :math:`\alpha` is determined by the
+    diameter :math:`d` and :math:`\alpha` can be calculated by:
+
+    :math:`\alpha = \frac{U}{d\cdot \pi}`
+
+    """
+    import math
     import pandapipes as pp
     from CoolProp.CoolProp import PropsSI
 
-    # Part II: Simulation with pandapipes
-    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-    # # Define the pandapipes parameters
+    # Define the pandapipes parameters
     pressure_net = 12  # [bar] (Pressure at the heat supply)
     pressure_pn = 20
     p = pressure_net * 100000  # pressure in [Pa]
-    v = 1.0  # [m/s] (Initial value for simulation?)
 
     if df_DN is None:  # Use some default values
         dT = 30  # [K]
@@ -3438,10 +3555,15 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         feed_temp = df_DN['T_forward [°C]'].values[0] + 273.15  # K
         ext_temp = df_DN['T_ground [°C]'].values[0] + 273.15  # K
 
+    # Calculate heat transfer coefficient for pandapipes (see docstring above)
+    df_DN["alpha [W/m2K]"] = df_DN['U-value [W/mK]'].div(
+        df_DN['Inner diameter [m]'] * math.pi)
+
+    # Get required physical properties of water
     cp = PropsSI('C', 'T', feed_temp, 'P', p, 'IF97::Water') * 0.001  # [kJ/(kg K)]
     d = PropsSI('D', 'T', feed_temp, 'P', p, 'IF97::Water')  # [kg/m³]
 
-    # # Prepare the component tables of the DHNx network
+    # Prepare the component tables of the DHNx network
     forks = network.components['forks']
     consumers = network.components['consumers']
     producers = network.components['producers']
@@ -3450,8 +3572,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
     # prepare the consumers dataframe
 
     # calculate massflow for each consumer and producer
-    consumers['massflow'] = consumers['P_heat_max'].apply(
-        lambda x: x / (cp * dT))
+    consumers['massflow'] = consumers['P_heat_max'].div(cp * dT)
 
     # prepare the pipes dataframe
 
@@ -3464,22 +3585,22 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         idx_name = 'index'
     pipes = pipes.reset_index()
 
-    # add the data of technical data sheet with the DN numbers to the pipes table
+    # Add data of technical data sheet with the DN numbers to the pipes table
     pipes = pipes.join(df_DN[[
         "DN", "Inner diameter [m]", "Roughness [mm]", "U-value [W/mK]",
         "alpha [W/m2K]",
     ]].set_index('DN'), on='DN')
 
-    # # Create the pandapipes model
+    # Create the pandapipes model
 
     # Now, we create the pandapipes network (pp_net).
     # Note that we only model the forward pipeline system in this example and
     # focus on the pressure losses due to the pipes (no pressure losses e.g.
     # due to expansion bend and so on).
-    # However, if we assume the same pressure drop for the return pipes and add
-    # a constant value for the substation, we can a first idea of the hydraulic
-    # feasibility of the drafted piping system, and we can check, if the
-    # temperature at the consumers is sufficiently high.
+    # However, if we assume the same pressure drop for the return pipes and
+    # add a constant value for the substation, we can get a first idea of the
+    # hydraulic feasibility of the drafted piping system, and we can check,
+    # if the temperature at the consumers is sufficiently high.
     pp_net = pp.create_empty_network(fluid="water")
 
     for index, fork in forks.iterrows():
@@ -3520,7 +3641,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
             name=producer['id_full']
         )
 
-    # EXTRENAL GRID as slip (Schlupf)
+    # EXTERNAL GRID as slip (Schlupf)
     for index, producer in producers.iterrows():
         pp.create_ext_grid(
             pp_net,
@@ -3532,6 +3653,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         )
 
     # create pipes
+    # TODO translate to create_pipes_from_parameters()
     for index, pipe in pipes.iterrows():
         pp.create_pipe_from_parameters(
             pp_net,
@@ -3547,7 +3669,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
             name=pipe[idx_name],
         )
 
-    # # Execute the pandapipes simulation
+    # Execute the pandapipes simulation
     pp.pipeflow(
         pp_net, stop_condition="tol", iter=3, friction_model="colebrook",
         mode="all", transient=False, nonlinear_method="automatic", tol_p=1e-3,
@@ -3557,31 +3679,37 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
     print(pp_net.res_junction.head(n=8))
     print(pp_net.res_pipe.head(n=8))
 
-    # # Example of exports of the results
+    # Export results to Excel
+    if save_path is not None:
+        filepath = os.path.join(save_path, 'pandapipes_result.xlsx')
+        if not os.path.exists(os.path.dirname(filepath)):
+            os.makedirs(os.path.dirname(filepath))
+        with pd.ExcelWriter(filepath) as writer:
+            pipes.to_excel(
+                writer, sheet_name='pipes',
+                columns=[idx_name, 'type', 'from_node', 'to_node', 'length',
+                         'capacity', 'Cost [€]', 'P_loss [kW]',
+                         "Inner diameter [m]", "Roughness [mm]",
+                         'U-value [W/mK]', "alpha [W/m2K]", 'DN']
+            )
+            pp_net.res_pipe.to_excel(writer, sheet_name='pandapipes_pipes')
+            pp_net.res_junction.to_excel(writer,
+                                         sheet_name='pandapipes_junctions')
 
-    # to excel
-    filepath = 'pandapipes_result/results_fine.xlsx'
-    if not os.path.exists(os.path.dirname(filepath)):
-        os.makedirs(os.path.dirname(filepath))
-    with pd.ExcelWriter(filepath) as writer:
-        pipes.to_excel(
-            writer, sheet_name='pipes',
-            columns=[idx_name, 'type', 'from_node', 'to_node', 'length',
-                     'capacity', 'Cost [€]', 'P_loss [kW]',
-                     "Inner diameter [m]", "Roughness [mm]",
-                     'U-value [W/mK]', "alpha [W/m2K]", 'DN']
-        )
-        pp_net.res_pipe.to_excel(writer, sheet_name='pandapipes_pipes')
-        pp_net.res_junction.to_excel(writer, sheet_name='pandapipes_junctions')
-
-    # merge results of pipes to GeoDataFrame
+    # Merge results of pipes to GeoDataFrame
     pipes = pd.merge(
         pipes, pp_net.res_pipe, left_index=True, right_index=True,
         how='left'
-    )
+        )
+    pipes.set_index(idx_name, inplace=True)  # restore the original index
 
-    # export the GeoDataFrames with the simulation results to .geojson
-    pipes.to_file('pandapipes_result/fine_pipes.geojson', driver='GeoJSON')
+    # Convert Kelvin to degrees Celsius temperature columns
+    pipes['t_from_°C'] = pipes['t_from_k'] - 273.15
+    pipes['t_to_°C'] = pipes['t_to_k'] - 273.15
+
+    if save_path is not None:
+        # export the GeoDataFrames with the simulation results to .geojson
+        save_geojson(pipes, 'pandapipes_result.geojson', path=save_path)
 
     # Plot the results of pandapipes simulation
     # Plots pressure of pipes' ending nodes
@@ -3610,9 +3738,9 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False):
         # network.components['forks'].plot(ax=ax, color='grey')
         pipes.plot(
             ax=ax,
-            column='t_to_k',
+            column='t_to_°C',
             legend=True,
-            legend_kwds={'label': "Temperature [K]",
+            legend_kwds={'label': "Temperature [°C]",
                          'shrink': 0.5},
             cmap='Wistia',
             linewidth=1,
@@ -3820,9 +3948,30 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     return df_lpagg, cfg
 
 
+def cache_validation_cb(metadata):
+    """Only retrieve cached results if use_cache is True.
+
+    Use in a function decorator:
+    @memory.cache(cache_validation_callback=cache_validation_cb)
+
+    Is taken from the documentation, but not available in my version of joblib.
+    """
+    return metadata['input_args'].get('use_cache', True)
+
+
+@memory.cache
 def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
               **cfg_kwargs):
-    """Replace the __main__.py script from the regular LPagg program."""
+    """Replace the __main__.py script from the regular LPagg program.
+
+    This function uses a 'cache': The results from a run are stored in
+    a local folder and reused for as long as the input stays the same.
+    This can save a lot of time for repeated runs.
+    To enforce clearing the cache and running the function again, run
+    the following line of code before calling this function:
+
+    ``lpagg_run.clear()``
+    """
     import lpagg.agg
 
     if cfg_kwargs.get('use_demandlib', False) == 'auto':
