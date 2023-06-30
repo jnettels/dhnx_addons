@@ -470,6 +470,16 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
             _save_excel(gdf, os.path.join(path, file+'.xlsx'))
 
 
+def save_geopackage(gdf, file, path='.'):
+    """Save a GeoDataFrame to a GeoPackage database file at the given path."""
+    filepath = os.path.join(path, file+'.gpkg')
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
+
+    logger.info('Saving... %s', filepath)
+    gdf.to_file(filepath, driver="GPKG")
+
+
 def save_sql(gdf, file, path='.', mode='w', layer=None):
     """Save a GeoDataFrame to a SQLite database file at the given path.
 
