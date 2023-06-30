@@ -242,6 +242,8 @@ def workflow_example_openstreetmap(
         },
         use_demandlib="auto",
         # use_demandlib=False,
+        # print_houses_xlsx=True,  # Print individual profiles for each house
+        # log_level='debug',
         )
     save_path = './result_dhnx'
 
@@ -274,7 +276,7 @@ def workflow_example_openstreetmap(
             # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10 (gurobi)
             # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0 (gurobi)
             'ratioGap': 0.01,  # (0.2 = 20% gap) default: 0 (cbc)
-            'seconds': 60 * 30 * 1,  # (seconds of maximum runtime) (cbc)
+            'seconds': 60 * 10 * 1,  # (seconds of maximum runtime) (cbc)
             # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
             'TimeLimit': 60 * 10 * 1,  # (seconds of maximum runtime) (gurobi)
             # 'TimeLimit': 60 * 60 * 1,  # (seconds of maximum runtime) (gurobi)
@@ -323,7 +325,11 @@ def workflow_default(buildings, show_plot=True):
         )
     buildings = set_heat_demand_for_new_buildings(buildings)
     buildings = apply_climate_correction_factor(buildings)
+
+    # Choose one of these functions for estimating hot water demand
     buildings = set_domestic_hot_water_from_DIN18599(buildings)
+    # buildings = set_domestic_hot_water_from_values(buildings)
+
     buildings = separate_heating_and_DHW(buildings)
     buildings = guess_thermal_power_from_full_load_hours(buildings)
     buildings = set_n_persons_and_flats(buildings)
@@ -335,10 +341,12 @@ def workflow_default(buildings, show_plot=True):
         show_plot=show_plot,
         resolution=None, buffer_distance=100,
         )
-    plot_hexgrid(gdf_hex, 'e_th_total_kWh', buildings,
-                 title='Wärmebedarf [MWh]', scale=1/1000,
-                 plot_basemap=True,
-                 )
+
+    if show_plot:
+        plot_hexgrid(gdf_hex, 'e_th_total_kWh', buildings,
+                     title='Wärmebedarf [MWh]', scale=1/1000,
+                     plot_basemap=True,
+                     )
 
     return buildings
 
@@ -1234,6 +1242,10 @@ def set_heat_demand_from_source_arge(
     can be corrected to actual building location with
     apply_climate_correction_factor()
 
+    Alternative functions:
+        - set_heat_demand_from_source_arge()
+        - set_heat_demand_from_source_B()
+
     Parameters
     ----------
     df_in : DataFrame
@@ -1511,9 +1523,16 @@ def set_heat_demand_from_source_B(
         ):
     """Get estimated annual heat demand for heating from source "B".
 
+    Alternative functions:
+        - set_heat_demand_from_source_arge()
+
     Source "B":
     IBS Ingenieurbüro für Haustechnik Schreiner
     http://energieberatung.ibs-hlk.de/eb_begr.htm
+
+    Alternative functions:
+        - set_heat_demand_from_source_arge()
+        - set_heat_demand_from_source_B()
 
     Using this data source yields much (up to factor 2, depending on the
     constrution year) higher energy demands than source "A".
@@ -1588,7 +1607,7 @@ def set_domestic_hot_water_from_DIN18599(
         col_spec_DHW='e_th_spec_DHW',
         col_building_osm='building_osm',
         decimals=2):
-    """Set residential domestic hot water energy demand from DIN 18599.
+    """Set domestic hot water energy demand from DIN 18599.
 
     Residential:
     qw b = max[16,5 - (A_NGF,WE,m · 0,05); 8,5] kWh/(m2 ∙ a)
@@ -1600,6 +1619,10 @@ def set_domestic_hot_water_from_DIN18599(
     DIN V 18599-10:2016, page 30
 
     Categories assigned to OpenStreetMap building type keys.
+
+    Alternative functions:
+        - set_domestic_hot_water_from_DIN18599()
+        - set_domestic_hot_water_from_values()
 
     """
     # DIN V 18599-10:2016, page 17
@@ -1664,23 +1687,25 @@ def set_domestic_hot_water_from_DIN18599(
 
 def set_domestic_hot_water_from_values(
         df, col_DHW='e_th_DHW_kWh', col_spec_DHW='e_th_spec_DHW',
-        col_building_type='building_type',
-        E_th_spec_DHW_SFH=10, E_th_spec_DHW_MFH=15, A_ref='a_N'):
-    """Subtract a fixed specific domestic hot water heat from total heat.
+        col_building_type='building_type', A_ref='a_N',
+        E_th_spec_DHW_dict=dict({'SFH': 10, 'MFH': 15, 'business': 9,
+                                 'other-heated-non-residential': 8})
+        ):
+    """Set a fixed specific domestic hot water heat per building type.
+
+    Alternative functions:
+        - set_domestic_hot_water_from_DIN18599()
+        - set_domestic_hot_water_from_values()
 
     Unit: kWh/(m² * a) (annual energy per Area A_N defined in German EnEV)
 
-    Applies only to the following 'building_type' options:
-        - 'SFH'
-        - 'MFH'
+    Applies only to the 'building_type' options provided in the input
+    dictionary E_th_spec_DHW_dict.
     """
     logger.info("Set fixed DHW energy demand")
-
-    df.loc[df[col_building_type] == 'SFH', col_spec_DHW] = E_th_spec_DHW_SFH
-    df.loc[df[col_building_type] == 'MFH', col_spec_DHW] = E_th_spec_DHW_MFH
-
+    df_spec = pd.Series(E_th_spec_DHW_dict, name=col_spec_DHW)
+    df = df.join(df_spec, on=col_building_type, how='left')
     df[col_DHW] = df[col_spec_DHW] * df[A_ref]
-
     return df
 
 
