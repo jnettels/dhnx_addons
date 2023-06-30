@@ -2232,20 +2232,54 @@ def merge_xyz_dtm(file_list, output_file=None, show_plot=False):
     return df
 
 
+def join_area_weighted(gdf_target, gdf_source, columns=None):
+    """Join columns from gdf_source with gdf_target where both intersect.
+
+    This is just a wrapper around tobler.area_weighted.area_join()
+    https://pysal.org/tobler/generated/tobler.area_weighted.area_join.html
+
+    This is somewhat similar to GeoDataFrame.sjoin(), but that one will
+    create duplicate geometries, if there are multiple matches.
+    Sometimes that may be desired.
+
+    Args:
+        gdf_target (gdf): Target GeoDataFrame
+
+        gdf_source (gdf): Source GeoDataFrame
+
+        columns (list): columns in parcels dataframe for variables to be
+        joined. If None, use all available columns. May result in
+        duplicate columns errors.
+
+    Returns:
+        buildings (gdf): GeoDataFrame with joined variables as new columns
+
+    """
+    logger.info('Spatial weighted area join of two GeoDataFrames...')
+
+    if columns is None:
+        geom = gdf_source.geometry.name
+        columns = gdf_source.drop(columns=[geom]).columns
+
+    gdf_target = tobler.area_weighted.area_join(
+        gdf_source.to_crs(gdf_target.crs), gdf_target, columns)
+    return gdf_target
+
+
 def combine_alkis_and_osm_buildings(
         gdf_alkis,
         gdf_osm,
-        columns=['addr:street', 'addr:housenumber', 'building:levels'],
+        columns=None,
         address_col=None):
     """Add the columns from gdf_osm to gdf_alkis where buildings intersect.
 
     This is useful for copying data from osm to an alkis dataset.
-    """
-    if columns is None:
-        columns = gdf_osm.drop(columns=['geometry']).columns
 
-    gdf_alkis = tobler.area_weighted.area_join(
-        gdf_osm.to_crs(gdf_alkis.crs), gdf_alkis, columns)
+    columns (list) :
+        List of columns to transfer from gdf_osm to gdf_alkis. E.g.:
+        ['addr:street', 'addr:housenumber', 'building:levels', 'roof:levels']
+    """
+    gdf_alkis = join_area_weighted(gdf_alkis, gdf_osm, columns)
 
     if address_col is not None:
         if ('addr:street' in gdf_alkis.columns
@@ -2260,7 +2294,7 @@ def combine_buildings_and_parcels(
         buildings, parcels, columns=None):
     """Store information from parcels in buildings within those parcels.
 
-    Join variables from parcels based on the largest intersection with
+    Join values in columns from parcels based on the largest intersection with
     buildings. In case of a tie, pick the first one.
 
     Most useful to transfer e.g. the parcel identification text from the
@@ -2286,19 +2320,13 @@ def combine_buildings_and_parcels(
         buildings (gdf): GeoDataFrame with joined variables as new columns
 
     """
-    logger.info('Combine buildings and parcels')
-
-    if columns is None:
-        geom = parcels.geometry.name
-        columns = parcels.drop(columns=[geom]).columns
-
-    buildings = tobler.area_weighted.area_join(parcels, buildings, columns)
+    buildings = join_area_weighted(buildings, parcels, columns=columns)
     return buildings
 
 
 def make_geographic_selection(
-        buildings, gdf_selection, col_candidates='DISTRICT_HEATING',
-        show_plot=True, drop=False):
+        buildings, gdf_selection, col_candidates=None, show_plot=True,
+        drop=False):
     """Make a geographic selection of buildings.
 
     In column 'col_candidates' of GeoDataFrame 'buildings', only those within
