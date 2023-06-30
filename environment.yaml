@@ -14,13 +14,13 @@
 
 # Qt is a library for graphical user interfaces.
 # This error can occur when you have separate conda environments with
-# different versions of the package "PyQt5". It should be solved by 
+# different versions of the package "PyQt5". It should be solved by
 # making sure your new environments use the same version as your base
 # environment.
 # In the example above, we can run the command
-# "conda list qt" 
+# "conda list qt"
 # to find the actual package name that causes the issue and then
-# "conda install qt-main==5.15.6" 
+# "conda install qt-main==5.15.6"
 
 name: work
 channels:
@@ -45,7 +45,12 @@ dependencies:
     - openpyxl
     - lpagg
     - trnpy
-    # For SQL stuff
+
+    # Setuptools is required when using a cloned dhnx_addons repository (without actually installing it).
+    # Together with git, which must also be installed, it determines the package version in __init__.py.
+    - setuptools_scm
+
+    # For SQL stuff:
     # sqlalchemy
     # geoalchemy2
     # psycopg2
@@ -65,7 +70,7 @@ dependencies:
     - deepdiff
 
 
-# run manual pip installations afterwards 
+# run manual pip installations afterwards
 # check with dry run first, to install missing packages with conda
 # pip install oemof.network oemof.solph oemof.tools --dry-run
 
