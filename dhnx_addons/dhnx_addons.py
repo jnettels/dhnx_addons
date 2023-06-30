@@ -4363,6 +4363,37 @@ def lpagg_merge_houses_and_load(
     return df_houses
 
 
+def download_elevation_data(gdf):
+    """Download elevation data for a region defined by gdf.
+
+    Just a test, not properly implemented yet.
+    """
+    import requests
+    import rasterio
+    from rasterio.plot import show
+    from owslib.wcs import WebCoverageService
+
+    # Convert your polygon to a bounding box
+    bbox = gdf.geometry.total_bounds
+
+    # Connect to the WCS service
+    wcs = WebCoverageService('https://example.com/wcs', version='1.0.0')
+
+    # Specify the layer you want (this will depend on the WCS service)
+    layer = 'DEM'
+
+    # Make the request
+    response = wcs.getCoverage(identifier=[layer], bbox=bbox, format='GeoTIFF')
+
+    # Write the response to a file
+    with open('output.tif', 'wb') as f:
+        f.write(response.read())
+
+    # Open the file with rasterio and plot it
+    with rasterio.open('output.tif') as src:
+        show(src)
+
+
 # Section with experimental / broken functions
 def QGIS_test_python():
     """Test for running QGIS scripts from python."""
