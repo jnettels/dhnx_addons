@@ -27,6 +27,15 @@ jobs:
       run: |
         conda install --file requirements.txt -c conda-forge -c jnettels
 
+    - name: Lint with flake8
+      if: runner.os == 'Linux'  # Only needs to run once
+      run: |
+        conda install flake8
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
     - name: Install DHNx from pip
       if: matrix.dhnx-version == 'pip'
       run: |
@@ -63,12 +72,3 @@ jobs:
       run: |
         cd dhnx_addons
         python dhnx_addons.py
-
-    - name: Lint with flake8
-      if: runner.os == 'Linux'  # Only needs to run once
-      run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
