@@ -276,7 +276,7 @@ def workflow_example_openstreetmap(
             # 'MIPGapAbs': 1e-5,  # (absolute gap) default: 1e-10 (gurobi)
             # 'MIPGap': 0.03,  # (0.2 = 20% gap) default: 0 (gurobi)
             'ratioGap': 0.01,  # (0.2 = 20% gap) default: 0 (cbc)
-            'seconds': 60 * 10 * 1,  # (seconds of maximum runtime) (cbc)
+            'seconds': 60 * 30 * 1,  # (seconds of maximum runtime) (cbc)
             # 'TimeLimit': 60 * 1,  # (seconds of maximum runtime)
             'TimeLimit': 60 * 10 * 1,  # (seconds of maximum runtime) (gurobi)
             # 'TimeLimit': 60 * 60 * 1,  # (seconds of maximum runtime) (gurobi)
