@@ -69,10 +69,10 @@ import json
 import logging
 import warnings
 from joblib import Memory
-from pkg_resources import parse_version
+from packaging.version import parse
 import numpy as np
 import shapely
-if parse_version(shapely.__version__) >= parse_version("2.0"):
+if parse(shapely.__version__) >= parse("2.0"):
     # There is a weird dll import error that occurs either if osgeo is
     # imported or not, and it seems to be related to the shapely version
     import osgeo  # import before geopandas fixes issue with rasterio, fiona
@@ -116,7 +116,7 @@ except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'dhnx' can be installed with "
                    "pip install dhnx==0.0.3")
-if parse_version(dhnx.__version__) < parse_version("0.0.3"):
+if parse(dhnx.__version__) < parse("0.0.3"):
     raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
                       ") is lower than the tested version (0.0.3)")
 
@@ -2940,7 +2940,7 @@ def download_country_borders_from_osm(
     # Unused experiments:
 
     tags = {"boundary": 'administrative'}
-    gdf = ox.geometries_from_polygon(area.geometry[0], tags=tags)
+    gdf = ox.features_from_polygon(area.geometry[0], tags=tags)
 
     plot_geometries([gdf], plot_basemap=True)
     plot_geometries([area], plot_basemap=True)
@@ -3029,7 +3029,7 @@ def download_buildings_from_osm(
             crs=gdf_polygon.crs)
 
     polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
-    gdf = ox.geometries_from_polygon(polygon, tags=building_tags)
+    gdf = ox.features_from_polygon(polygon, tags=building_tags)
 
     # Convert to target crs
     gdf.to_crs(crs=crs, inplace=True)
@@ -3119,7 +3119,7 @@ def download_streets_from_osm(
     # Download the street network data from OpenStreetMap
     streets = dict({'highway': highway_keys})
     # Option 1) Create GeoDataFrame object from the polygon
-    # gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
+    # gdf_lines_streets = ox.features_from_polygon(polygon, tags=streets)
 
     # Option 2) Download as a graph and convert to GeoDataFrame
     # Gives more options to use osmnx functions for simplifying the network
