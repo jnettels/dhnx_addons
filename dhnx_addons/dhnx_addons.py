@@ -1698,62 +1698,168 @@ def separate_heating_and_DHW(
 
 def calculate_avg_level_height(
         gdf, col_height, col_levels=['building:levels', 'roof:levels'],
-        col_level_height=None,
-        kind='mean'):
+        col_level_height=None, height_min=2, kind='single_mean',
+        group_col1=None, group_col2=None, show_plot=False, decimals=4):
     """Calculate level height from building height and number of levels.
 
-    TODO: Given enough input data, can provide average height for groups
-    of buildings. Then those grouped averages can be used to fill the
-    missing number of levels.
+    If col_level_height is given, store the height for each building in
+    that column.
+
+    height_min: Entries in col_height lower than this will be removed,
+    because they are considered implausible
+
+    kind (str):
+        Given enough input data, can provide average height for groups
+        of buildings. Then those grouped averages can be used to fill the
+        missing number of levels.
+        Choose kind='grouped_means' for this approach. Then also
+        group_col1='osm_building' and group_col2='baujahr' need to be defined
+
     """
     if not isinstance(col_levels, list):
         col_levels = [col_levels]
-    breakpoint()
+
+    # Remove implausible building heights
+    gdf.loc[gdf[col_height] < height_min, col_height] = np.nan
 
     _col_levels = [col for col in col_levels if col in gdf.columns]
     if len(_col_levels) > 0:
         levels = gdf[_col_levels].sum(axis='columns', min_count=1)
+        levels.replace(0, np.nan, inplace=True)
 
         df_level_height = (gdf[col_height]
                            .div(levels)
                            .replace(np.inf, np.nan)
                            )
         if col_level_height:
-            gdf[col_level_height] = df_level_height
+            gdf[col_level_height] = df_level_height.round(decimals)
     else:
         df_level_height = pd.Series()
 
-    if kind == 'mean':
+    if kind == 'single_mean':
         level_height = df_level_height.mean()
 
-    """
-    gdf.groupby(by='building_osm')[col_level_height].mean()
-    gdf.groupby(by='building_type')[col_level_height].mean()
-    gdf.groupby(by='baujahr')[col_level_height].mean()
-    test = gdf.groupby(by=[ 'building_osm', 'baujahr'])[col_level_height].mean()
-    test = gdf.groupby(by=[ 'building_type', 'baujahr'])[col_level_height].mean()
-    test = gdf[gdf['heated']].groupby(by=[ 'building_osm', 'baujahr'])[col_level_height].count()
-    """
+    elif kind == 'grouped_means':
+        # There are two approaches here:
+        #    1) Group by building type and year first, then create a fit
+        #       through that data. This does not take into account the count
+        #       of each class, which could be used as a weight. I.e. the mean
+        #       of a  class with 1000 entries should be more reliable that
+        #       one with only 100 entries. However, this allows to simply
+        #       drop classes below a certain count that is not deemed
+        #       representative
+        #    2) Do not group, but instead fit through all individual buildings
+        #       with each building type. This will automatically included the
+        #       weight described above. However, for building types with few
+        #       buildings outliers can drastically influence the result
+        #
+        # I currently favor 1), because judging from the plots it creats more
+        # 'stable' results. I have tested fitting degrees of 2 but return to 1
+        # (linear fit) because others are too unreliable.
+
+        group_cols = [group_col1, group_col2]
+        # gdf[col_height].describe()
+        # gdf[col_height].value_counts().sort_index().head(30)
+
+        test = gdf.groupby(by=group_cols)[col_level_height].describe()
+        test.loc[test['count'] <= 10, 'mean'] = np.nan
+        for building in test.index.unique(group_col1):
+            if test.loc[building, 'mean'].count() == 0:
+                test.loc[building, 'mean'].fillna(
+                    test['mean'].mean(), inplace=True)
+            elif test.loc[building, 'mean'].count() == 1:
+                test.loc[building, 'mean'].fillna(
+                    test.loc[building, 'mean'].mean(), inplace=True)
+            if len(test.loc[building, 'mean']) == 1:
+                continue
+
+            df_fit1 = test.loc[building, 'mean'].dropna()
+            df_fit2 = gdf.loc[gdf[group_col1] == building,
+                              [group_col2, col_level_height]
+                              ].set_index(group_col2)
+            df_fit2 = df_fit2[col_level_height].sort_index()
+            if df_fit2.count() == 0:
+                df_fit2.fillna(test['mean'].mean(), inplace=True)
+            df_fit2.dropna(inplace=True)
+
+            p1 = np.polyfit(df_fit1.index.astype(int), df_fit1, 1)
+            p2 = np.polyfit(df_fit2.index.astype(int), df_fit2, 1)
+            f1 = np.poly1d(p1)
+            f2 = np.poly1d(p2)
+            test.loc[building, 'fit1'] = f1(test.loc[building, 'mean'].index)
+            test.loc[building, 'fit2'] = f2(test.loc[building, 'mean'].index)
+            test['fit1'] = test['fit1'].clip(lower=height_min)
+            test['fit2'] = test['fit2'].clip(lower=height_min)
+
+            if show_plot:
+                fig, ax = plt.subplots()
+                test.loc[building].reset_index().plot.scatter(
+                    ax=ax, x=group_col2, y='mean', label=building,
+                    s='count', c='count', xlabel=group_col2)
+                test.loc[building, 'fit1'].plot(ax=ax, label='fit1',
+                                                c='tab:red')
+                test.loc[building, 'fit2'].plot(ax=ax, label='fit2',
+                                                c='tab:orange')
+                ax.set_ylim(bottom=0,
+                            # top=top
+                            )
+                plt.legend()
+                plt.show()
+
+        # After all this, test['fit1'] contains the mean level height for each
+        # building type and year class. Now the NaN values in
+        # gdf[col_level_height] need to be filled correctly
+        test.rename(columns={'fit1': col_level_height}, inplace=True)
+        df_tmp = pd.merge(gdf[group_cols],
+                          test[col_level_height], how='left',
+                          on=group_cols).set_index(gdf.index)
+        # Some buildings will still be NaN, e.g. those with building type None
+        # Or those that only occur a single time (where no polyfit is possible)
+        # Fill them with the global mean
+        df_tmp[col_level_height].fillna(df_level_height.mean(), inplace=True)
+
+        # Fill the missing values in the input df with the group means
+        gdf[col_level_height].fillna(df_tmp[col_level_height], inplace=True)
+        gdf[col_level_height] = gdf[col_level_height].round(decimals)
+
+        # Set the return value to None as a signal that instead the
+        # column col_level_height was filled
+        level_height = None
 
     return level_height
 
 
 def calculate_levels_from_height(
-        gdf, col_height, col_levels='building:levels', level_height=3.5,
-        upper=None, lower=1, decimals=1):
+        gdf, col_height, col_levels='building:levels', level_height=None,
+        col_level_height=None, upper=None, lower=1, decimals=1):
     """Calculate the number of levels per building from the height.
 
     Given the height of a building in column 'col_height' and the
-    height per level 'level_height', store the numver of levels in
+    height per level 'level_height', store the number of levels in
     column 'col_levels'. Existing values are not overwritten.
+
+    Instead of a global height per level ``level_height``, a column name
+    ``col_level_height`` with the value for each building can be given.
+
+    level_height (float): The average height of each level in a building.
+    E.g. 3.5m.
 
     limit (int): Set a maximum limit for the number of levels
     decimals (int): Number of decimal places to round the result to
 
     """
+    if level_height is None and col_level_height is None:
+        raise ValueError("One of level_height and col_level_height "
+                         "must be defined")
+    if level_height is not None and col_level_height is not None:
+        raise ValueError("Only one of level_height and col_level_height "
+                         "must be defined")
+    if col_level_height is not None:
+        level_height = gdf[col_level_height]
+
     gdf.loc[gdf[col_levels].isna(), col_levels] = (
         gdf[col_height]
-        .div(level_height)
+        .div(level_height)  # Can be single value or a whole column
         .clip(lower=lower, upper=upper)
         .round(decimals))
     # print(gdf[col_levels].describe())
