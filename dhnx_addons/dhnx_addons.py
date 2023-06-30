@@ -3652,10 +3652,11 @@ def export_lineralized_pipe_input(df, constants_costs, constants_loss):
 
     # Export the optimisation parameter of the dhs pipelines to the investment
     # data and replace the default csv file.
-    df_pipes.to_csv(
-        "invest_data/network/pipes.csv", index=False,
-    )
-    # The file above will be read by DHNx
+    # This file will be read by DHNx and is expected at a specific location
+    filepath = "invest_data/network/pipes.csv"
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
+    df_pipes.to_csv(filepath, index=False)
 
 
 def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path="."):
