@@ -327,10 +327,16 @@ def workflow_default(buildings, show_plot=True):
     buildings = set_n_persons_and_flats(buildings)
     log_statistics(buildings, show_plot=show_plot)
 
-    gdf_hex = create_hexgrid(buildings, clip=False, show_plot=show_plot,
-                             resolution=None, buffer_distance=100,
-                             plot_basemap=True,
-                             )
+    gdf_hex = create_hexgrid(
+        buildings, clip=False,
+        extensive_variables=['e_th_total_kWh'],
+        show_plot=show_plot,
+        resolution=None, buffer_distance=100,
+        )
+    plot_hexgrid(gdf_hex, 'e_th_total_kWh', buildings,
+                 title='Wärmebedarf [MWh]', scale=1/1000,
+                 plot_basemap=True,
+                 )
 
     return buildings
 
@@ -2399,12 +2405,12 @@ def merge_touching_buildings_in_parcels(
 
 def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
                    buffer_distance=200,
-                   col_heat='e_th_total_kWh', figsize=(20, 10),
-                   scheme='fisherjenkssampled', k=7,
-                   show_plot=True,
-                   method='interpolation',
+                   intensive_variables=None,
+                   extensive_variables=None,
+                   categorical_variables=None,
+                   n_jobs=1,
                    save_path=None,
-                   plot_basemap=False,
+                   show_plot=True,
                    ):
     """Create hexplot of the sum of col_heat from gdf_buildings in gfd_parcels.
 
@@ -2419,8 +2425,10 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
         DESCRIPTION. H3 hex resolution. If none, a resolution is estimated.
     clip : TYPE, optional
         DESCRIPTION. The default is False.
-    intensive_variables : TYPE, optional
-        DESCRIPTION. The default is 'E_th_total_kWh'.
+    intensive_variables : list, optional
+        Columns in DataFrame for intensive variables. An average is calculated.
+    extensive_variables : TYPE, optional
+        Columns in DataFrame for extensive variables. These will be summed up.
 
     scheme: str (default None)
         Name of a choropleth classification scheme (requires mapclassify).
@@ -2435,6 +2443,10 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
     -------
     gdf_hex_interp : TYPE
         DESCRIPTION.
+
+    See the following for reference:
+    https://pysal.org/tobler/generated/tobler.area_weighted.area_interpolate.html
+    https://pysal.org/tobler/notebooks/census_to_hexgrid.html
 
     """
     logger.info("Create hexgrid")
@@ -2460,68 +2472,77 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
         raise ValueError("Choose a higher resolution than {} for the hexgrid".
                          format(resolution))
 
-    if method == 'interpolation':
-        gdf_hex_interp = tobler.area_weighted.area_interpolate(
-            source_df=gdf_buildings, target_df=gdf_hex,
-            # intensive_variables=[col_heat],
-            extensive_variables=[col_heat],
-            allocate_total=True,
-            )
-    elif method == 'join':
-        # This caused problems with the resulting heat demand sums
-        gdf_hex_interp = tobler.area_weighted.area_join(
-            source_df=gdf_buildings, target_df=gdf_hex,
-            variables=[col_heat],
-            )
-        gdf_hex_interp.fillna(0, inplace=True)
-    else:
-        raise ValueError("Method {} not defined".format(method))
+    gdf_hex = tobler.area_weighted.area_interpolate(
+        source_df=gdf_buildings,
+        target_df=gdf_hex,
+        intensive_variables=intensive_variables,
+        extensive_variables=extensive_variables,
+        categorical_variables=categorical_variables,
+        allocate_total=True,
+        n_jobs=n_jobs,
+        )
 
-    logger.debug("Sum of heat demand: %s MWh in buildings, %s MWh in hexgrid",
-                 round(gdf_buildings[col_heat].sum()/1000, 2),
-                 round(gdf_hex_interp[col_heat].sum()/1000, 2),
+    logger.debug("Relative deviation of sums in input and hexgrid:\n%s",
+                 (gdf_buildings[extensive_variables].sum()
+                  - gdf_hex[extensive_variables].sum()
+                  ) / gdf_buildings[extensive_variables].sum()
                  )
 
-    if show_plot:
-        fig, ax = plt.subplots(figsize=figsize)
-
-        gdf_hex_interp_plot = gdf_hex_interp.copy()
-        gdf_hex_interp_plot[col_heat] *= 1/1000  # from kWh to MWh
-
-        def plot_recursive(k):
-            """Decrease the number of classes k until the plot is valid."""
-            try:
-                gdf_hex_interp_plot.plot(
-                    column=col_heat,
-                    ax=ax,
-                    scheme=scheme,
-                    k=k,  # Number of classes
-                    alpha=0.5,
-                    legend=True,
-                    legend_kwds=dict(title='Wärmebedarf [MWh]'),
-                    )
-            except ValueError as e:
-                k -= 1
-                if k > 0:
-                    plot_recursive(k)
-                else:
-                    raise e
-        try:
-            plot_recursive(k)
-        except ValueError as e:
-            raise ValueError("Column '{}' is missing enough valid values "
-                             "for plot".format(col_heat)) from e
-
-        if plot_basemap:
-            add_basemap(ax, crs=gdf_buildings.crs)
-        gdf_buildings.plot(ax=ax)
-        ax.axis('off')
-        plt.show()
-
     if save_path is not None:
-        save_geojson(gdf_hex_interp, file='buildings_hex', path=save_path)
+        save_geojson(gdf_hex, file='buildings_hex', path=save_path)
 
-    return gdf_hex_interp
+    return gdf_hex
+
+
+def plot_hexgrid(
+        gdf_hex,
+        plot_col,
+        gdf_buildings=None,
+        scale=1,
+        title=None,
+        figsize=(20, 10),
+        scheme='fisherjenkssampled',
+        k=7,
+        show_plot=True,
+        plot_basemap=False,
+        ):
+    """Plot the result from create_hexgrid()."""
+    fig, ax = plt.subplots(figsize=figsize)
+
+    gdf_hex_plot = gdf_hex.copy()
+    gdf_hex_plot[plot_col] *= scale  # e.g. from kWh to MWh with 1/1000
+
+    def plot_recursive(k):
+        """Decrease the number of classes k until the plot is valid."""
+        try:
+            gdf_hex_plot.plot(
+                column=plot_col,
+                ax=ax,
+                scheme=scheme,
+                k=k,  # Number of classes
+                alpha=0.5,
+                legend=True,
+                legend_kwds=dict(title=title),
+                )
+        except ValueError as e:
+            k -= 1
+            if k > 0:
+                plot_recursive(k)
+            else:
+                raise e
+    try:
+        plot_recursive(k)
+    except ValueError as e:
+        raise ValueError("Column '{}' is missing enough valid values "
+                         "for plot".format(plot_col)) from e
+
+    if plot_basemap:
+        add_basemap(ax, crs=gdf_hex.crs)
+    if gdf_buildings is not None:
+        gdf_buildings.plot(ax=ax)
+    ax.axis('off')
+    plt.show()
+
 
 
 def fit_hexgrid_resolution(area):
