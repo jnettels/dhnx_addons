@@ -3198,6 +3198,31 @@ def assign_random_producer_building(gdf_houses, seed=42):
     return gdf_houses, gdf_prod
 
 
+def clean_previous_street_results(gdf):
+    """Clean a lines GeoDataFrame that was a previous optimization result.
+
+    It sometimes can be desirable to re-use the distribution lines
+    result from a previous optimization run, e.g. to keep placement of pipe
+    location consistent and cut optimization time, while still adapting to
+    changes in e.g. thermal power per building or pipe properties.
+
+    In such a case, the generator line(s) and house lines must be removed
+    from the network, and old columns are removed for savety.
+    """
+    mask = gdf['type'].isin(['DL'])
+    gdf = gdf.loc[mask, [gdf.geometry.name]]
+    # gdf.drop(columns=['index', 'type', 'from_node', 'to_node', 'length',
+    #                   'existing', 'hp_type', 'from_noderesults_',
+    #                   'to_noderesults_', 'lengthresults_',
+    #                   'hp_typeresults_', 'capacity', 'direction', 'costs',
+    #                   'losses', 'DN'],
+    #          inplace=True,
+    #          errors='ignore',
+    #          )
+    return gdf
+
+
+@memory.cache
 def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
              path_invest_data='invest_data',
