@@ -1,0 +1,17 @@
+# gitignore - Specifies intentionally untracked files to ignore
+*~
+~*
+__pycache__
+cache/
+build/
+dist/
+*result
+*.pyc
+*.dat
+*.xlsx
+*.pdf
+*.png
+
+dhnx_addons/invest_data/network/pipes.csv
+
+*/result_*
