@@ -705,6 +705,8 @@ def identify_heated_buildings(
 
     if col_building_type in gdf.columns:
         mask3 = gdf[col_building_type].isin(types_heated)
+    else:
+        mask3 = True
 
     gdf.loc[mask1 & mask2 & mask3, col_heated] = True
     gdf.loc[~(mask1 & mask2 & mask3), col_heated] = False
