@@ -735,7 +735,7 @@ def assign_alkis_functions_to_osm_building_keys(
         'Auskragende/zurückspringende Geschosse': 'roof',
         'Aussichtsturm': 'tower',
         # 'BAUWERK_AX_BauwerkImGewaesserbereich': '',
-        # 'BAUWERK_AX_VorratsbehaelterSpeicherbauwerk': '',
+        'BAUWERK_AX_VorratsbehaelterSpeicherbauwerk': 'storage_tank',
         'Berufsbildende Schule': 'college',
         'Betriebsgebäude für Flugverkehr': 'hangar',
         'Betriebsgebäude für Schienenverkehr': 'train_station',
@@ -782,8 +782,8 @@ def assign_alkis_functions_to_osm_building_keys(
         'Polizei': 'public',
         'Rathaus': 'government',
         'Schloss': 'castle',
-        # 'Schornstein im Gebäude': '',
-        # 'Schornstein, Schlot, Esse': '',
+        'Schornstein im Gebäude': 'chimney',
+        'Schornstein, Schlot, Esse': 'chimney',
         'Schutzhütte': 'hut',
         'Sendeturm, Funkturm, Fernmeldeturm': 'tower',
         'Silo': 'silo',
@@ -972,6 +972,7 @@ def building_type_from_osm(
         col_building_osm='building_osm',
         col_building_type='building_type',
         assign_key_yes='unknown',
+        warn_undefined=True,
         ):
     """Assign OpenStreetMap's "building" key values to general types.
 
@@ -1006,20 +1007,29 @@ def building_type_from_osm(
     logger.info('Assign building type from OpenStreetMap')
 
     translate_dict = {
-        'SFH': ['house', 'residential', 'detached', 'semidetached_house'],
-        'MFH': ['apartments'],
-        'business': ['commercial', 'office', 'retail'],
+        'SFH': ['house', 'residential', 'detached', 'semidetached_house',
+                'terrace', 'farm', 'bungalow', 'villa',
+                ],
+        'MFH': ['apartments', 'dormitory'],
+        'business': ['commercial', 'office', 'retail', 'supermarket', 'shop',],
         'other-heated-non-residential':
             ['school', 'college', 'university', 'fire_station', 'government',
              'civic', 'industrial', 'public', 'hotel', 'hospital', 'museum',
              'sports_hall', 'kindergarten', 'warehouse',
+             'sports_centre', 'mosque', 'religious', 'brewery', 'cathedral',
+             'presbytery'
              ],
         'non-heated':
             ['roof', 'tower', 'hangar', 'train_station', 'bridge', 'barn',
              'cemetery', 'mast', 'garage', 'garages', 'stadium', 'church',
              'chapel', 'parking', 'castle', 'hut', 'silo', 'storage_tank',
              'greenhouse', 'water_tower', 'grandstand', 'roof', 'stadium',
-             'shed', 'service', 'carport'],
+             'shed', 'service', 'carport', 'farm_auxiliary', 'construction',
+             'toilets', 'bunker', 'disused', 'ruins', 'allotment_house',
+             'no', 'kiosk', 'hall', 'electricity', 'chimney',
+             ],
+        'unknown':
+            [],
         }
 
     # The user needs to decide how to handle the building tag 'yes'
@@ -1031,6 +1041,16 @@ def building_type_from_osm(
 
     for b_type, b_list in translate_dict.items():
         gdf.loc[gdf[col_building_osm].isin(b_list), col_building_type] = b_type
+
+    if warn_undefined:
+        undefined = gdf.loc[gdf[col_building_type].isna(),
+                            col_building_osm].value_counts()
+        if not undefined.empty:
+            logger.warning("During assignment of general building types from "
+                           "OpenStreetMap types, the following tags where "
+                           "found to be undefined. Consider updating "
+                           "building_type_from_osm() with appropriate "
+                           "assignments:\n%s", undefined)
 
     return gdf
 
