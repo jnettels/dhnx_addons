@@ -201,6 +201,7 @@ def workflow_example_openstreetmap(
         #     'semidetached_house',
         #     'yes',  # This key defines all "other" buildings
         # ],
+        rename_dict={'building': 'building_osm'},
         show_plot=show_plot)
 
     gdf_houses = workflow_default(gdf_houses, show_plot=show_plot)
@@ -222,11 +223,12 @@ def workflow_example_openstreetmap(
     # b.2) Run lpagg, then use the time series of power for each building
 
     # Run "load profile aggregator" to get maximum thermal load for buildings
+    # lpagg_run.clear()  # Clear cached results
     gdf_houses, df_load_ts_slice = lpagg_run(
         gdf_houses,
         sigma=3,
         E_th_col='e_th_total_kWh',
-        result_folder='./lpagg_result',
+        result_folder='./result_lpagg',
         print_file='load.dat',
         # intervall='15 minutes',
         show_plot=show_plot,
@@ -241,7 +243,7 @@ def workflow_example_openstreetmap(
         use_demandlib="auto",
         # use_demandlib=False,
         )
-    save_path = './dhnx_result'
+    save_path = './result_dhnx'
 
     save_geojson(gdf_houses, 'consumers_polygon', path=save_path,
                  save_excel=True)
@@ -1305,7 +1307,7 @@ def set_heat_demand_from_source_arge(
         col_spec_total, aliases_SFH=aliases_SFH, aliases_MFH=aliases_MFH)
     # Convert from final energy to net energy demand:
     df = df * eta
-    # Merging assings the correct heat demand to each row in the DataFrame
+    # Merging assigns the correct heat demand to each row in the DataFrame
     df_out = (pd.merge(df_in, df, how='left',
                        on=[col_building_type, col_refurbished_state,
                            col_construction_year])
@@ -1584,7 +1586,7 @@ def set_domestic_hot_water_from_DIN18599(
         col_heated='heated',
         col_DHW='e_th_DHW_kWh',
         col_spec_DHW='e_th_spec_DHW',
-        col_building_type='building_osm',
+        col_building_osm='building_osm',
         decimals=2):
     """Set residential domestic hot water energy demand from DIN 18599.
 
@@ -1601,7 +1603,7 @@ def set_domestic_hot_water_from_DIN18599(
 
     """
     # DIN V 18599-10:2016, page 17
-    mask = df[col_building_type].isin(
+    mask = df[col_building_osm].isin(
         ['SFH', 'MFH', 'house', 'residential', 'detached',
          'semidetached_house', 'apartments'])
     df.loc[mask, col_spec_DHW] = ((16.5 - df['a_NRF'] * 0.05)
@@ -1610,7 +1612,7 @@ def set_domestic_hot_water_from_DIN18599(
 
     # DIN V 18599-10:2016, page 30
     df_non_residential = pd.DataFrame(
-        columns=[col_building_type, col_spec_DHW],
+        columns=[col_building_osm, col_spec_DHW],
         data=[  # Wh/(m² * d)
             ['civic', 30],  # Bürogebäude
             ['college', 130],  # Schule
@@ -1633,8 +1635,8 @@ def set_domestic_hot_water_from_DIN18599(
         365/1000)
 
     # Assign the each building type in df its specific heat demand
-    df_tmp = (df[[col_building_type]]
-              .merge(df_non_residential, on=col_building_type, how='left')
+    df_tmp = (df[[col_building_osm]]
+              .merge(df_non_residential, on=col_building_osm, how='left')
               .set_index(df.index)  # preserve index for correct update
               )
 
@@ -2953,7 +2955,8 @@ def download_buildings_from_osm(
         crs=None,
         show_plot=False,
         dropna_tresh=None,
-        rename_dict={'building': 'building_osm'},
+        rename_dict=None,  # e.g. {'building': 'building_osm'},
+        prefix=None,
         ):
     """Download building data from OpenStreetMap.
 
@@ -2970,6 +2973,9 @@ def download_buildings_from_osm(
 
         building_keys (bool, list): Either ``True`` or a list of buildings
         tags used in OpenStreetMap to filter which building types to select.
+        Example: building_keys=['apartments', 'commercial', 'detached',
+        'house', 'industrial', 'residential', 'retail', 'semidetached_house',
+        'yes']
 
         dropna_tresh (int): The input 'thresh' for df.dropna(). If not None,
         dropna() is called, allowing to remove all columns that have only
@@ -3026,6 +3032,11 @@ def download_buildings_from_osm(
 
     if rename_dict:
         gdf.rename(columns=rename_dict, inplace=True)
+
+    if prefix is not None:
+        geom_col = gdf.geometry.name
+        gdf = gdf.add_prefix(prefix)  # Rename all columns with prefix
+        gdf.set_geometry(prefix+geom_col, inplace=True)  # Restore geometry
 
     return gdf
 
