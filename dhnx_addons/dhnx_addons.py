@@ -69,10 +69,10 @@ import json
 import logging
 import warnings
 from joblib import Memory
-from pkg_resources import parse_version
+from packaging.version import parse
 import numpy as np
 import shapely
-if parse_version(shapely.__version__) >= parse_version("2.0"):
+if parse(shapely.__version__) >= parse("2.0"):
     # There is a weird dll import error that occurs either if osgeo is
     # imported or not, and it seems to be related to the shapely version
     import osgeo  # import before geopandas fixes issue with rasterio, fiona
@@ -116,7 +116,7 @@ except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'dhnx' can be installed with "
                    "pip install dhnx==0.0.3")
-if parse_version(dhnx.__version__) < parse_version("0.0.3"):
+if parse(dhnx.__version__) < parse("0.0.3"):
     raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
                       ") is lower than the tested version (0.0.3)")
 
