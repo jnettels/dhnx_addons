@@ -263,6 +263,7 @@ def workflow_example_openstreetmap(
         save_path=save_path,
         show_plot=show_plot,
         # path_invest_data='invest_data',
+        # path_pipe_data="input/Pipe_data.csv",
         # df_load_ts_slice=None,
         df_load_ts_slice=df_load_ts_slice,
         col_p_th=None,
@@ -3262,15 +3263,15 @@ def clean_previous_street_results(gdf):
 def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
              path_invest_data='invest_data',
+             path_pipe_data="input/Pipe_data.csv",
              df_load_ts_slice=None,
+             col_p_th='P_heat_max',
              bidirectional_pipes=False,
              simultaneity=1,
              reset_index=True,
              method='midpoint',
-             col_p_th='P_heat_max',
              solver=None,
              solver_cmdline_options=None,
-             path_pipe_data="input/Pipe_data.csv",
              ):
     """Run the dhnx (district heating networks) process.
 
@@ -3294,13 +3295,22 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         DESCRIPTION. The default is './out'.
     show_plot : TYPE, optional
         DESCRIPTION. The default is True.
-    path_invest_data : TYPE, optional
-        DESCRIPTION. The default is 'invest_data'.
+    path_invest_data : str, optional
+        Path to folder with special dhnx input (consumer and producer files).
+        The default is 'invest_data'.
+    path_pipe_data : str, optional
+        Path to a .csv or .xlsx file with input data for district heating
+        pipes (U-value, cost, etc. per norm diameter DN). The default is
+        'input/Pipe_data.csv'.
     df_load_ts_slice : DataFrame, optional
         A DataFrame with timeseries of the thermal load
-        in kW for building. The column names (identifier for each building)
+        in kW for buildings. The column names (identifier for each building)
         need to match the index of gdf_poly_houses, to be able to match.
+        If this is defined, ``col_p_th`` must be set to ``None``.
         The default is None.
+    col_p_th : str, optional
+        A column name of ``gdf_poly_houses`` containing the thermal power
+        of each building. The default is 'P_heat_max'.
     bidirectional_pipes : TYPE, optional
         DESCRIPTION. The default is False.
     simultaneity : TYPE, optional
@@ -3325,7 +3335,13 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         DESCRIPTION.
 
     """
-    if df_load_ts_slice is None and col_p_th is not None:
+    if df_load_ts_slice is not None and col_p_th is not None:
+        raise ValueError("Only one of 'col_p_th' and 'df_load_ts_slice' "
+                         "can be defined. (To use the values of a single "
+                         "value as each building's thermal power or "
+                         "a time series for each building.)")
+
+    elif df_load_ts_slice is None and col_p_th is not None:
         # Specific column name for thermal power is required for DHNX
         if gdf_poly_houses[col_p_th].isna().any():
             raise ValueError("Each building connected to the district "
