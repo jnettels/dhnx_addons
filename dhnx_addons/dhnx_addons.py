@@ -384,12 +384,13 @@ def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833"):
     return gdf
 
 
-def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
-                 save_excel=False):
-    """Save a gdf to geojson file at the given path.
+def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
+                     type_errors='raise', save_excel=False, **kwargs):
+    """Save a GeoDataFrame to a given GIS file type at the given path.
 
-    For large datasets, consider using save_sql() instead, which yields
-    better performance in e.g. QGIS.
+    This is 'just' a wrapper around geopandas.to_file(), but includes
+    logic to give a chance to close an opened target file instead of failing
+    with PermissionError and to handle type errors, by conversion to string.
 
     crs "EPSG:4647" is recommended for good length calculation results.
 
@@ -399,6 +400,10 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
         Data to save.
     file : str
         File name to save to.
+    ext : str
+        File extension
+    driver : str
+        An OGR format driver accepted by geopandas.to_file()
     path : str, optional
         File path to save to. The default is '.'.
     crs : pyproj.CRS, optional
@@ -412,14 +417,17 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
     save_excel : bool, optional
         If True, also save an Excel file with the same name. The default
         is False.
+    **kwargs :
+        Other keyword arguments are passed on to geopandas.to_file().
 
     Returns
     -------
     None.
 
     """
-    if not os.path.exists(path):
-        os.makedirs(path)
+    filepath = os.path.join(path, file+ext)
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
 
     if crs is None:
         if gdf.crs is None:
@@ -429,18 +437,18 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
         else:
             crs = gdf.crs
     try:
-        logger.info('Saving... %s', os.path.join(path, file+'.geojson'))
+        logger.info('Saving... %s', filepath)
         if gdf.crs is not None and gdf.crs != crs:
             gdf.to_crs(crs=crs, inplace=True)
 
-        gdf.to_file(os.path.join(path, file+'.geojson'), driver='GeoJSON',
-                    crs=crs)
+        gdf.to_file(filepath, driver=driver, crs=crs, **kwargs)
     except PermissionError:
         try:
             input("Please close QGIS to allow saving the file '{}.geojon'. "
                   "Then hit Enter, or CTRL+C to abort.\n".format(file))
-            save_geojson(gdf, file, path=path, crs=crs,
-                         type_errors=type_errors, save_excel=save_excel)
+            save_gis_generic(
+                gdf, file, ext=ext, driver=driver, path=path, crs=crs,
+                type_errors=type_errors, save_excel=save_excel, **kwargs)
         except KeyboardInterrupt:
             logger.info('Saving %s.geojson skipped!', file)
     except ValueError as e:
@@ -463,8 +471,8 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
                 if type_errors == 'raise':
                     raise TypeError(
                         f"Error in column '{col}' when saving '{file}': "
-                        f"'{e2}'. You may try the option save_geojson(..., "
-                        "type_errors='coerce') to attempt fixing this "
+                        f"'{e2}'. You may try the option "
+                        "type_errors='coerce' to attempt fixing this "
                         "by forcing conversion to string") from e
                 else:
                     logger.warning("Converting column '%s' to string to "
@@ -474,21 +482,35 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
         if type_errors == 'coerce':
             # All errors should have been fixed now, so try saving again
             # Pass type_errors='raise' to avoid getting caught in a loop
-            save_geojson(gdf, file, path=path, crs=crs,
-                         type_errors='raise', save_excel=save_excel)
+            save_gis_generic(
+                gdf, file, ext=ext, driver=driver, path=path, crs=crs,
+                type_errors='raise', save_excel=save_excel, **kwargs)
     else:  # Execute when there is no error
         if save_excel:
             _save_excel(gdf, os.path.join(path, file+'.xlsx'))
 
 
-def save_geopackage(gdf, file, path='.'):
-    """Save a GeoDataFrame to a GeoPackage database file at the given path."""
-    filepath = os.path.join(path, file+'.gpkg')
-    if not os.path.exists(os.path.dirname(filepath)):
-        os.makedirs(os.path.dirname(filepath))
+def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
+                 save_excel=False, **kwargs):
+    """Save a GeoDataFrame to geojson file at the given path.
 
-    logger.info('Saving... %s', filepath)
-    gdf.to_file(filepath, driver="GPKG")
+    For large datasets, consider using save_geopackage() or save_sql()
+    instead, which yield better performance in e.g. QGIS.
+    """
+    save_gis_generic(gdf, file, ext='.geojson', driver='GeoJSON',
+                     path=path, crs=crs, type_errors=type_errors,
+                     save_excel=save_excel, **kwargs)
+
+
+def save_geopackage(gdf, file, path='.', crs=None, type_errors='raise',
+                    save_excel=False, **kwargs):
+    """Save a GeoDataFrame to a GeoPackage database file at the given path.
+
+    GeoPackage has great performance in QGIS, even for large data sets.
+    """
+    save_gis_generic(gdf, file, ext='.gpkg', driver='GPKG',
+                     path=path, crs=crs, type_errors=type_errors,
+                     save_excel=save_excel, **kwargs)
 
 
 def save_sql(gdf, file, path='.', mode='w', layer=None):
