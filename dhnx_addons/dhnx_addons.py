@@ -2998,6 +2998,35 @@ def choose_random_thermal_load(gdf_buildings, low=10, high=50):
 
 
 # Section "OpenStreetMap downloads"
+def download_area_by_name(places, crs='EPSG:25832', show_plot=True, **kwargs):
+    """Download the polygon of an area from OpenStreetMap by its name.
+
+    Parameters
+    ----------
+    places : list
+        A list of strings, defining the places to search for.
+        Example: ``places=['Braunschweig, Germany']``
+
+    crs : str, optional
+        A coordinate reference system string to convert the data into.
+        Default is 'EPSG:25832'
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+        A GeoDataFrame containing the polygon(s) of the found location(s).
+
+    """
+    gdf = ox.geocode_to_gdf(places, **kwargs)
+    if crs is not None:
+        gdf.to_crs(crs, inplace=True)
+
+    if show_plot:
+        plot_geometries(gdf, plt_kwargs=dict(alpha=0.5), plot_basemap=True)
+
+    return gdf
+
+
 def download_country_borders_from_osm(
         places=["Braunschweig, Germany"], show_plot=False):
     """Download borders of country, city etc. by the name(s) of the place(s).
@@ -3030,10 +3059,8 @@ def download_country_borders_from_osm(
     gdf.index.unique('element_type')
 
     """
-    area = ox.geocode_to_gdf(places)
-    if show_plot:  # Show plot in a projected CRS
-        plot_geometries(area.to_crs('EPSG:4647'), plot_basemap=True)
-    return area
+    gdf = download_area_by_name(places=places, show_plot=show_plot)
+    return gdf
 
 
 def download_buildings_from_osm(
