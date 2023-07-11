@@ -1387,8 +1387,7 @@ def process_src_data_arge(
         df, idx_name, col_names, val_name, year_min=1800,
         year_max=2050, aliases_SFH=None, aliases_MFH=None):
     """Process data from source ARGE."""
-    df.index.set_names(idx_name, inplace=True)
-    df.columns.set_names(col_names, inplace=True)
+    df = df.rename_axis(index=idx_name, columns=col_names)
 
     try:
         # Convert 2nd column index level to categorical (for sorting)
