@@ -3065,17 +3065,7 @@ def download_country_borders_from_osm(
 
 def download_buildings_from_osm(
         gdf_polygon,
-        building_keys=[
-            'apartments',
-            'commercial',
-            'detached',
-            'house',
-            'industrial',
-            'residential',
-            'retail',
-            'semidetached_house',
-            'yes',
-        ],
+        building_keys=True,
         crs=None,
         show_plot=False,
         dropna_tresh=None,
