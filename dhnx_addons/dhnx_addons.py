@@ -1804,7 +1804,7 @@ def calculate_avg_level_height(
         level_height = df_level_height.mean()
 
     elif kind == 'grouped_means':
-        # There are two approaches here:
+        # There are two approaches here (fit1 and fit2):
         #    1) Group by building type and year first, then create a fit
         #       through that data. This does not take into account the count
         #       of each class, which could be used as a weight. I.e. the mean
@@ -1820,13 +1820,12 @@ def calculate_avg_level_height(
         # I currently favor 1), because judging from the plots it creats more
         # 'stable' results. I have tested fitting degrees of 2 but return to 1
         # (linear fit) because others are too unreliable.
-
         group_cols = [group_col1, group_col2]
         # gdf[col_height].describe()
         # gdf[col_height].value_counts().sort_index().head(30)
 
         test = gdf.groupby(by=group_cols)[col_level_height].describe()
-        test.loc[test['count'] <= 10, 'mean'] = np.nan
+        # test.loc[test['count'] <= 10, 'mean'] = np.nan
         for building in test.index.unique(group_col1):
             if test.loc[building, 'mean'].count() == 0:
                 test.loc[building, 'mean'].fillna(
@@ -1845,6 +1844,9 @@ def calculate_avg_level_height(
             if df_fit2.count() == 0:
                 df_fit2.fillna(test['mean'].mean(), inplace=True)
             df_fit2.dropna(inplace=True)
+
+            # print(building)
+            # print(test.loc[building, ['mean', 'count']])
 
             p1 = np.polyfit(df_fit1.index.astype(int), df_fit1, 1)
             p2 = np.polyfit(df_fit2.index.astype(int), df_fit2, 1)
@@ -1870,10 +1872,26 @@ def calculate_avg_level_height(
                 plt.legend()
                 plt.show()
 
-        # After all this, test['fit1'] contains the mean level height for each
-        # building type and year class. Now the NaN values in
+        # Create another column 'mix' where the mean is replaced with the
+        # fit function if the count is too low.
+        test['mix'] = test['mean']
+        test.loc[test['count'] < 100, 'mix'] = test['fit1']
+
+        # We can now choose the mean per group or one of the fit functions
+        # as the input for all buildings with undefined level height
+        # method_select = 'mean'
+        # method_select = 'fit1'
+        # method_select = 'fit2'
+        method_select = 'mix'
+
+        if test.loc[test['count'] > 0, method_select].isna().any():
+            raise ValueError("Some building groups do not have a mean level "
+                             "height assigned. Check the calculation.")
+
+        # After all this, test[method_select] contains the mean level height
+        # for each building type and year class. Now the NaN values in
         # gdf[col_level_height] need to be filled correctly
-        test.rename(columns={'fit1': col_level_height}, inplace=True)
+        test.rename(columns={method_select: col_level_height}, inplace=True)
         df_tmp = pd.merge(gdf[group_cols],
                           test[col_level_height], how='left',
                           on=group_cols).set_index(gdf.index)
