@@ -1,46 +1,35 @@
-"""Collection of generalized functions for ALKIS and OpenStreetMap data.
+r"""Collection of generalized functions for ALKIS and OpenStreetMap data.
 
-Special requirements:
+Installation and usage
+----------------------
 
-conda install libpysal fiona osmnx
-
-conda install tobler>=0.8.0 -c conda-forge
-
-conda install h3-py  # optional dependency of tobler
-
-conda install contextily -c conda-forge
-
-dhnx: https://github.com/oemof/DHNx
+See the readme.md in the repository for general information.
 
 
-Responsible for
-"OSError: exception: access violation reading 0xFFFFFFFFFFFFFFFF"
-pygeos-0.12.0 (comes with tobler-0.9.0)
+Special dependencies
+--------------------
 
-TODO
-Neue Quelle für Wärmebedarfe ohne Trinkwasser
-http://energieberatung.ibs-hlk.de/eb_begr.htm
-
-DIN 18599 Teil 10 für Trinkwarmwasser
-
-Interesting blog post about 3D data
-http://bbonczak.com/posts/multipatch-conversion/
+See requirements.txt or environment.yaml in the repository.
 
 
-General workflows:
+Useful resources
+----------------
 
-ALKIS "FUNKTION" tags can be translated to OpenStreetMap "building" tags.
-Then those are grouped into building types that have a defined specific
-heat demand.
+- Download test reference year weather data from DWD
+    - https://kunden.dwd.de/obt/
+- Download Open GeoData (e.g. LoD1 and LoD2 3D-models)
+    - https://opengeodata.lgln.niedersachsen.de/#lod2
+    - https://www.lvermgeo.sachsen-anhalt.de/de/gdp-open-data.html
+- Download digital terrain/elevation model files
+    - https://earthexplorer.usgs.gov/
+    - https://gdz.bkg.bund.de/index.php/default/open-data.html
 
+Common errors & solutions
+-------------------------
 
-Other related projects:
-    - https://simstadt.hft-stuttgart.de/
+.. code::
 
-
-Common errors:
-
-"Cannot mix incompatible Qt library (5.15.8) with this library (5.15.6)"
+    Cannot mix incompatible Qt library (5.15.8) with this library (5.15.6)
 
 Qt is a library for graphical user interfaces.
 This error can occur when you have separate conda environments with
@@ -48,20 +37,63 @@ different versions of the package "PyQt5". It should be solved by
 making sure your new environments use the same version as your base
 environment.
 In the example above, we can run the command
-"conda list qt"
-to find the actual package name that causes the issue and then
-"conda install qt-main==5.15.6"
+
+``conda list qt``
+
+to find the actual package name that causes the issue and then e.g.
+
+``conda install qt-main==5.15.6``
 
 
-"from rasterio._version import gdal_version, get_geos_version, get_proj_version
-ImportError: DLL load failed while importing _version:
-    Die angegebene Prozedur wurde nicht gefunden."
+.. code::
 
-Solution: "import osgeo" before rasterio is imported by fiona or contextily.
+    OSError: exception: access violation reading 0xFFFFFFFFFFFFFFFF
+
+This could occur with pygeos-0.12.0 (comes with tobler-0.9.0). It should
+not happen with up-to-date packages.
+
+
+.. code::
+
+    from rasterio._version import gdal_version, get_geos_version, get_proj_version
+    ImportError: DLL load failed while importing _version:
+        Die angegebene Prozedur wurde nicht gefunden.
+
+Solution: Place ``import osgeo`` before rasterio is imported by fiona
+or contextily.
 See https://gis.stackexchange.com/a/450445/135438
 
 
+.. code::
+
+    AttributeError: partially initialized module 'fiona' has no attribute
+    '_loading' (most likely due to a circular import)
+
+Solution: Place ``import fiona`` before ``import dhnx_addons`` in your
+script.
+
+
+.. code::
+
+    Windows fatal exception: stack overflow
+
+    Main thread:
+    Current thread 0x0000a5bc (most recent call first):
+      File "C:\Users\Nettelstroth\anaconda3\envs\work\lib\pickle.py", line 531 in get
+      File "C:\Users\Nettelstroth\anaconda3\envs\work\lib\pickle.py", line 547 in save
+      ...
+
+I implemented the cache from joblib.Memory, because it can save a lot of
+time when running with the exact same settings multiple times.
+However, sometimes it seems to cause this error. In that case it should
+help to clear the cache by putting one of the following lines in front
+of the line where ``lpagg_run()`` or ``dhnx_run()`` are called.
+
+- ``dhnx_addons.lpagg_run.clear()  # Clear cached results``
+- ``dhnx_addons.dhnx_run.clear()  # Clear cached results``
+
 """
+
 import os
 import re
 import io
@@ -147,7 +179,7 @@ try:
     import pandapipes
 except ImportError as e:
     logger.exception(e)
-    logger.warning("Optional dependency 'pandapipes' can be installed from "
+    logger.warning("Optional dependency 'pandapipes' can be installed with "
                    "'pip install pandapipes'")
 
 
@@ -288,10 +320,10 @@ def workflow_example_openstreetmap(
         },
         )
 
-    if show_plot:
-        plot_geometries([gdf_houses, gdf_prod, gdf_pipes], plot_basemap=True)
-
     pandapipes_run(network, gdf_pipes, df_DN, show_plot=show_plot)
+
+    # It is possible to download the elevation data for the current area
+    download_elevation_data(gdf_houses, show_plot=show_plot)
 
 
 def workflow_default(buildings, show_plot=True):
@@ -789,6 +821,7 @@ def assign_alkis_functions_to_osm_building_keys(
         'Funkmast': 'mast',
         'Garage': 'garage',
         'Gebäude für Erholungszwecke': 'civic',
+        'Gebäude für Gesundheitswesen': 'civic',
         'Gebäude für Gewerbe und Industrie': 'industrial',
         'Gebäude für Gewerbe und Industrie mit Wohnen': 'industrial',
         'Gebäude für Handel und Dienstleistung mit Wohnen': 'retail',
@@ -898,6 +931,10 @@ def fill_residential_osm_building_types(
 
     https://wiki.openstreetmap.org/wiki/Key:building
 
+    Alternative functions:
+        - fill_residential_osm_building_types()
+        - fill_random_osm_building_types()
+
     Args:
         gdf (GeoDataFrame): A GeoDataFrame of the buildings
 
@@ -911,7 +948,7 @@ def fill_residential_osm_building_types(
 
         discard_types (list): List of keys in the column 'col_building_osm'
         that will be discarded and replaced by the new types. Default
-        is None, but recommendation is 'yes'. This generic building tag
+        is None, but recommendation is ['yes']. This generic building tag
         may make further processing problamatic otherwise.
 
         notna_columns (list, optional):
@@ -965,6 +1002,10 @@ def fill_random_osm_building_types(
     Use carefully. Assigning types at random is only useful for tests.
     However, this is useful if you want to use
     building_type_from_osm() as a next step.
+
+    Alternative functions:
+        - fill_residential_osm_building_types()
+        - fill_random_osm_building_types()
 
     Args:
         buildings (gdf): A GeoDataFrame of the buildings
@@ -1562,9 +1603,6 @@ def set_heat_demand_from_source_B(
         col_construction_year='construction_year',
         ):
     """Get estimated annual heat demand for heating from source "B".
-
-    Alternative functions:
-        - set_heat_demand_from_source_arge()
 
     Source "B":
     IBS Ingenieurbüro für Haustechnik Schreiner
@@ -4446,6 +4484,10 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
     the following line of code before calling this function:
 
     ``lpagg_run.clear()``
+
+    TODO: Eliminate argument E_th_col and get total heat from lpagg
+    settings instead
+
     """
     import lpagg.agg
 
@@ -4496,8 +4538,8 @@ def lpagg_get_max_power_slice(df_load_ts, buffer=0, show_plot=True):
                   .sum(axis='columns')
                   .div(freq)  # convert kWh to kW
                   .unstack(["house"])
+                  .rename_axis(columns=None)  # remove label 'house'
                   )
-    df_load_ts.columns.set_names(None, inplace=True)
 
     # Choose time slice with maximum power
     # Select a time "buffer" around the maximum moment for each building
@@ -4510,8 +4552,10 @@ def lpagg_get_max_power_slice(df_load_ts, buffer=0, show_plot=True):
     slice_list = []
     for idx in df_idxmax.itertuples():
         slice_list.append(df_load_ts.loc[str(idx.start):str(idx.end)])
-    df_load_ts_slice = pd.concat(slice_list)
-    df_load_ts_slice = df_load_ts_slice.drop_duplicates().sort_index()
+    df_load_ts_slice = (pd.concat(slice_list)
+                        .drop_duplicates()
+                        .sort_index()
+                        )
 
     if show_plot:
         fig, ax = plt.subplots(figsize=(20, 10), dpi=200)
