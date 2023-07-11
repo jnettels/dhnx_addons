@@ -75,12 +75,23 @@ script.
 
 .. code::
 
+    WARNING: Cannot find header.dxf (GDAL_DATA is not defined)
+
+This is not an error, just a warning. But it can be fixed by setting
+the 'GDAL_DATA' environment variable:
+
+``os.environ['GDAL_DATA'] = os.path.join(os.path.dirname(sys.executable),
+'Library/share/gdal')``
+
+
+.. code::
+
     Windows fatal exception: stack overflow
 
     Main thread:
     Current thread 0x0000a5bc (most recent call first):
-      File "C:\Users\Nettelstroth\anaconda3\envs\work\lib\pickle.py", line 531 in get
-      File "C:\Users\Nettelstroth\anaconda3\envs\work\lib\pickle.py", line 547 in save
+      File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 531 in get
+      File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 547 in save
       ...
 
 I implemented the cache from joblib.Memory, because it can save a lot of
