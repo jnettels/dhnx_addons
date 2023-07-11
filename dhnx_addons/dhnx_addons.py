@@ -4554,35 +4554,87 @@ def lpagg_merge_houses_and_load(
     return df_houses
 
 
-def download_elevation_data(gdf):
-    """Download elevation data for a region defined by gdf.
-
-    Just a test, not properly implemented yet.
-    """
-    import requests
+def download_elevation_data(
+        gdf, crs=None, ext='geotiff', path='./cache/wms_dgm200_inspire',
+        show_plot=False):
+    """Download elevation data for a region defined by the bounds of gdf."""
     import rasterio
-    from rasterio.plot import show
-    from owslib.wcs import WebCoverageService
+    from rasterio.features import shapes
+    from owslib.wms import WebMapService
 
-    # Convert your polygon to a bounding box
-    bbox = gdf.geometry.total_bounds
+    if crs is None:
+        crs = gdf.crs
 
-    # Connect to the WCS service
-    wcs = WebCoverageService('https://example.com/wcs', version='1.0.0')
+    # Connect to the WebMapService
+    url = 'https://sgx.geodatenzentrum.de/wms_dgm200_inspire'
+    wms = WebMapService(url, version='1.3.0')
 
-    # Specify the layer you want (this will depend on the WCS service)
-    layer = 'DEM'
+    # Specify the layer and style, by reading it from the source
+    layer = list(wms.contents)[0]  # 'EL.GridCoverage'
+    style = list(wms[layer].styles.keys())[0]  # 'default'
+
+    if crs not in wms[layer].crsOptions:
+        crs_fallback = 'EPSG:4326'  # WGS 84
+        logger.warning("Selected CRS '%s' not supported, using '%s' instead",
+                       crs, crs_fallback)
+        crs = crs_fallback
+
+    # Convert polygon to a bounding box
+    bbox = gdf.to_crs(crs).geometry.total_bounds
+
+    # Calculate the width and height of the bounding box in meters
+    bbox_m = gdf.to_crs('EPSG:25832').geometry.total_bounds
+    width_m = bbox_m[2] - bbox_m[0]
+    height_m = bbox_m[3] - bbox_m[1]
+
+    # Calculate the number of pixels in each dimension
+    # Data source has a resolution of 200m, so to be save use 100m
+    size = (int(round(width_m / 100, 0)), int(round(height_m / 100, 0)))
+
+    # Other available information
+    # wms.identification.type
+    # list(wms.contents)
+    # wms[layer].boundingBoxWGS84
+
+    # Select the image format from the given file extension
+    format_ = 'image/'+ext
+    if format_ not in wms.getOperationByName('GetMap').formatOptions:
+        logger.warning("Extension '%s' not supported", ext)
 
     # Make the request
-    response = wcs.getCoverage(identifier=[layer], bbox=bbox, format='GeoTIFF')
+    logger.debug("Downloading: %s", wms.identification.title)
+    response = wms.getmap(layers=[layer], styles=[style], bbox=bbox,
+                          srs=str(crs), format=format_,
+                          size=size, transparent=True)
 
     # Write the response to a file
-    with open('output.tif', 'wb') as f:
+    filepath = path + '.' + ext
+    logger.info("Saving downloaded elevation data to %s", filepath)
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
+    with open(filepath, 'wb') as f:
         f.write(response.read())
 
     # Open the file with rasterio and plot it
-    with rasterio.open('output.tif') as src:
-        show(src)
+    with rasterio.open(filepath) as src:
+        image = src.read(1)  # read the image
+
+    # Create a GeoDataFrame from the results
+    results = (
+        {'properties': {'raster_val': v}, 'geometry': s}
+        for i, (s, v) in enumerate(shapes(image, transform=src.transform))
+        )
+    gdf_elevation = gpd.GeoDataFrame.from_features(list(results), crs=crs)
+
+    if show_plot:
+        plot_geometries([gdf_elevation, gdf],
+                        plt_kwargs=[
+                            dict(column='raster_val', legend=True,
+                                 legend_kwds=dict(label='Elevation [m]')),
+                            dict(label='Area', alpha=0.5)],
+                        title='Elevation data')
+
+    return gdf_elevation
 
 
 # Section with experimental / broken functions
