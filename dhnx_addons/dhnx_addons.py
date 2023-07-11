@@ -2652,37 +2652,54 @@ def merge_touching_buildings_in_parcels(
 
 
 def merge_with_test(df1, df2, on, find_closest_matches=False):
-    """Merge df1 and df2 with pd.merge() while searching for best matches.
+    """Merge df2 into df1 with pd.merge() while testing for missing matches.
 
-    If input are GeoDataFrames, the geometry of df1 is kept, while geometry
+    Optionally find the closest matches for the missing matches.
+
+    .. Note ::
+
+        Returns a tuple ``(df1, df_missing)``!
+
+    If inputs are GeoDataFrames, the geometry of df1 is kept, while geometry
     of df2 is dropped.
 
     Parameters
     ----------
     df1 : DataFrame
-        ``left`` in ``pd.merge(left=df1, right=df2, on=on, how='left')``.
-    df2 : TYPE
-        ``right`` in ``pd.merge(left=df1, right=df2, on=on, how='left')``.
+        The DataFrame that will be returned, with new colums from df2.
+        Represents ``left`` in
+        ``pd.merge(left=df1, right=df2, on=on, how='left')``.
+    df2 : DataFrame
+        The DataFrame from which columns will be added to df1 where rows match
+        in the column ``on``. Represents ``right`` in
+        ``pd.merge(left=df1, right=df2, on=on, how='left')``.
     on : str
-        Column name to join on. Must be a single column
+        Column name to join on, e.g. 'address'. Must be a single column.
     find_closest_matches : bool, optional
-        If True, the closest matches are searched for the rows that were not
+        If True, the closest matches are searched for those rows that were not
         merged. This can be quite slow, so it is only recommended
-        for debugging. The default is False.
+        for debugging. The potential matches are never actually merged to df1,
+        only included in df_missing. The default is False.
 
     Returns
     -------
-    DataFrame
-        The merged DataFrame.
+    tuple :
+        tuple (df1, df_missing) of the merged DataFrame and a DataFrame
+        containing information about the missing matches.
 
     """
-    from fuzzywuzzy import process as fuzzywuzzy_process
+    if find_closest_matches:
+        try:
+            from fuzzywuzzy import process as fuzzywuzzy_process
+        except ImportError as e:
+            raise ImportError("Finding closest matches requires 'fuzzywuzzy'. "
+                              "Please install it with pip or conda.") from e
 
-    # Find out which elements of df (the new data) cannot be matched to gdf
+    # Find out which elements of df2 (the new data) cannot be matched to df1
     df_test = pd.merge(left=df1, right=df2, on=on, how='outer', indicator=True)
     len_right_only = df_test['_merge'].value_counts().get('right_only', 0)
     if len_right_only > 0:
-        logger.info("%s addresses in df2 could not be matched to df1",
+        logger.info("%s rows in df2 could not be matched to df1",
                     len_right_only)
 
     # If df2 is a GeoDataFrame, we want to be able to plot it on a map.
@@ -2691,7 +2708,7 @@ def merge_with_test(df1, df2, on, find_closest_matches=False):
     if isinstance(df2, gpd.GeoDataFrame):
         if df2.geometry.name in df_test.columns:
             cols_keep.append(df_test.geometry.name)
-        else:  # Assume df1 and df2 where renamed to geometry_x and geometry_y
+        else:  # Assume df1 and df2 were renamed to geometry_x and geometry_y
             cols_keep.append(df2.geometry.name + '_y')
 
     # Create a (Geo)DataFrame with the rows that could not be merged
@@ -2701,21 +2718,21 @@ def merge_with_test(df1, df2, on, find_closest_matches=False):
     except (ValueError, AttributeError):
         pass
 
-    if not find_closest_matches:
-        logger.info("Missing matches are not tested for close matches")
-    else:
-        logger.info("Finding closest matches...")
-        # Isolate the missing addresses in df2 and find the closest match
-        # in df1 using 'fuzzywuzzy', in order to see if there are
-        # methodical errors
+    if not df_missing.empty:
+        if not find_closest_matches:
+            logger.info("Missing matches are not tested for close matches")
+        else:
+            logger.info("Finding closest matches...")
+            # Isolate the missing rows in df2 and find the closest match
+            # in column 'on' of df1 using 'fuzzywuzzy'
 
-        def search_match(row):
-            """For the given row, find the closest match in df1."""
-            highest = fuzzywuzzy_process.extractOne(row[on], df1[on])
-            return pd.Series([highest[0], highest[1]])  # match and score
+            def search_match(row):
+                """For the given row, find the closest match in df1."""
+                highest = fuzzywuzzy_process.extractOne(row[on], df1[on])
+                return pd.Series([highest[0], highest[1]])  # match and score
 
-        df_missing[['match', 'score']] = df_missing.apply(search_match,
-                                                          axis='columns')
+            df_missing[['match', 'score']] = df_missing.apply(search_match,
+                                                              axis='columns')
 
     df = pd.merge(left=df1,
                   right=df2.drop(columns="geometry", errors='ignore'),
