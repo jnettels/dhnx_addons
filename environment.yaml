@@ -36,6 +36,7 @@ dependencies:
     - osmnx
     - coolprop
     - fiona
+    - rasterio
     - tobler
     - h3-py
     - contextily
@@ -43,20 +44,28 @@ dependencies:
     - shapely
     - pygeos
     - openpyxl
+    - fuzzywuzzy
+    - owslib
+    
+    # From channel jnettels
     - lpagg
     - trnpy
 
-    # Setuptools is required when using a cloned dhnx_addons repository (without actually installing it).
-    # Together with git, which must also be installed, it determines the package version in __init__.py.
+    # Setuptools is required when using a cloned dhnx_addons repository
+    # (without actually installing it). Together with git, which must
+    # also be installed, it determines the package version in __init__.py.
     - setuptools_scm
+
+    # To allow "conda develop"
+    - conda-build
 
     # For SQL stuff:
     # sqlalchemy
     # geoalchemy2
     # psycopg2
 
-    # Spyder dependencies: (If you want to activate the environment in a spyder console)
-    # spyder-kernels=2.3  # Version number was provided by a spyder error messsage
+    # Spyder dependencies: (If you want to activate the environment in Spyder)
+    # spyder-kernels=2.4  # Version number is provided by a spyder messsage
 
     # dhnx/oemof dependencies:
     - PyUtilib
@@ -68,6 +77,15 @@ dependencies:
 
     # pandapipes dependencies
     - deepdiff
+
+    # Specify automatic pip installations
+    - pip:
+        - oemof-network
+        - oemof-solph
+        - oemof-tools
+        - pandapipes
+        # - dhnx  # Install from https://github.com/oemof/DHNx
+        # - demandlib  # Install from https://github.com/jnettels/demandlib/tree/features/add-vdi-from-lpagg
 
 
 # run manual pip installations afterwards

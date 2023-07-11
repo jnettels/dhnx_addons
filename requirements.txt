@@ -15,6 +15,7 @@ matplotlib
 osmnx
 coolprop
 fiona
+rasterio
 tobler
 h3-py
 contextily
@@ -22,11 +23,17 @@ libpysal
 shapely
 pygeos
 openpyxl
-setuptools_scm
+fuzzywuzzy
+owslib
 
 # From conda channel "-c jnettels":
 lpagg
 trnpy
+
+# Setuptools is required when using a cloned dhnx_addons repository
+# (without actually installing it). Together with git, which must
+# also be installed, it determines the package version in __init__.py.
+setuptools_scm
 
 # To allow "conda develop"
 conda-build
