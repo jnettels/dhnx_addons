@@ -688,9 +688,9 @@ def save_excel(df, path, **kwargs):
     Just a wrapper around 'df.to_excel(path, **kwargs)' that creates the
     directory and asks to close the file in case of permission error.
     """
-    if 'geometry' in df.columns:
-        df_save = df.drop(columns='geometry')
-    else:
+    try:
+        df_save = df.drop(columns=[df.geometry.name])
+    except AttributeError:
         df_save = df.copy()
 
     if not os.path.exists(os.path.dirname(path)):
