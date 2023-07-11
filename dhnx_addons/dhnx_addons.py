@@ -79,7 +79,10 @@ if parse(shapely.__version__) >= parse("2.0"):
 
 import pandas as pd
 import geopandas as gpd
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
+from inspect import signature
 
 try:
     from . import cbc_installer  # local import
@@ -3263,6 +3266,8 @@ def plot_geometries(
         title='',
         crs_default="EPSG:4647",
         plot_basemap=False,
+        plt_kwargs=None,
+        set_axis_off=False,
         **fig_kwargs,
         ):
     """Plot the given list of geometry objects.
@@ -3270,6 +3275,10 @@ def plot_geometries(
     Geometries can be GeoDataFrames, GeoSeries and shapely geometries.
     They are converted to a common crs. If taking the crs of the first
     entry in gdf_list fails, 'crs_default' is used instead.
+
+    plt_args : list
+        List of dictionaries for each gdf in gdf_list, with arguments to
+        hand over to each gdf.plot() call.
     """
     fig_kwargs.setdefault('figsize', (20, 10))
     fig, ax = plt.subplots(**fig_kwargs)
@@ -3277,23 +3286,51 @@ def plot_geometries(
 
     if isinstance(gdf_list, gpd.GeoDataFrame):
         gdf_list = [gdf_list]  # Allow single GeoDataFrame as list
+    if isinstance(plt_kwargs, dict):
+        plt_kwargs = [plt_kwargs]  # Allow single dict as list
 
     try:
         crs_use = gdf_list[0].crs
     except Exception:
         crs_use = crs_default
 
-    for gdf, color in zip(gdf_list, colors[:len(gdf_list)]):
+    if plt_kwargs is None:  # Need to create a list of empty dicts
+        plt_kwargs = [dict() for x in range(len(gdf_list))]
+
+    handles = []
+
+    for gdf, color, args in zip(gdf_list, colors[:len(gdf_list)], plt_kwargs):
         if not (isinstance(gdf, gpd.GeoDataFrame)
                 or isinstance(gdf, gpd.GeoSeries)):
             # Assume that this is a shapely geometry that can be converted
             gdf = gpd.GeoDataFrame(geometry=[gdf], crs=crs_default)
 
-        gdf.to_crs(crs=crs_use).plot(ax=ax, color=color)
+        if 'column' not in args.keys():
+            # gdf.plot() accepts only one of 'color' and 'column'
+            args.setdefault('color', color)
+        gdf.to_crs(crs=crs_use).plot(ax=ax, **args)
+
+        # Unless the "columns" argument is used with gdf.plot(), by default
+        # no legend is created. Create an artificial legend:
+        if 'label' in args.keys():
+            allowed_args = (list(signature(Patch).parameters.keys())
+                            + list(signature(Patch.set).parameters.keys()))
+            for key in [x for x in args.keys() if x not in allowed_args]:
+                args.pop(key, None)
+            if 'linewidth' in args.keys():
+                args.setdefault('color', 'black')
+                handles.append(Line2D([0], [0], **args))
+            else:
+                handles.append(Patch(**args))
 
     if plot_basemap:
         add_basemap(ax, crs=crs_use)
 
+    if set_axis_off:
+        ax.set_axis_off()
+
+    if len(handles) > 0:
+        plt.legend(handles=handles)
     plt.title(title)
     plt.show()
 
@@ -3587,6 +3624,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
 
     if show_plot:
+        """
         # plot output after processing the geometry
         _, ax = plt.subplots(figsize=(20, 10), dpi=300)
         # network.components['consumers'].plot(ax=ax, color='green', markersize=.5)
@@ -3610,6 +3648,18 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         # plt.legend()
         plt.title('Invested pipelines')
         plt.show()
+        """
+
+        plot_geometries(
+            [gdf_poly_houses, gdf_poly_gen, gdf_pipes[gdf_pipes['DN'] > 0]],
+            plt_kwargs=[dict(label='Consumer'),
+                        dict(label='Producer'),
+                        dict(column='DN', linewidth=2, legend=True,
+                             label='Pipelines', legend_kwds={'label': 'DN'})],
+            plot_basemap=True,
+            title='Invested pipelines',
+            set_axis_off=True,
+            dpi=300)
 
     # Export results
     gdf_pipes = gdf_pipes[gdf_pipes['DN'] > 0]  # Keep only DN>0 in output
