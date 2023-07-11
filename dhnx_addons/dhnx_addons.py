@@ -1098,9 +1098,11 @@ def assign_random_construction_classification(
         year_mu=None,
         year_sigma=None,
         ):
-    """Assign random construction years and refurbished states to buildings.
+    """Assign random construction years and/or refurbished states to buildings.
 
-    If construction years are known, consider using
+    Instead of assigning both years and refurbished states with this function,
+    you can also only assign years and then assign refurbishments based on
+    propabilities from the literature with
     assign_construction_classification_from_arge() instead.
 
     Args:
@@ -1126,21 +1128,34 @@ def assign_random_construction_classification(
     """
     logger.info('Assign random construction classification')
 
+    # These names must match those used in set_heat_demand_from_source_arge()
+    # and assign_construction_classification_from_arge()
+    refurbished_states = [
+        'not refurbished', 'slightly refurbished', 'mostly refurbished']
+
     rng = np.random.default_rng(42)
     if col_construction_year is not None:
+        if col_construction_year not in gdf.columns:
+            gdf[col_construction_year] = np.nan
         if year_mu is None or year_sigma is None:
-            gdf[col_construction_year] = rng.integers(low=1900, high=2008,
-                                                      size=len(gdf))
+            gdf[col_construction_year].fillna(
+                pd.Series(rng.integers(low=1900, high=2008, size=len(gdf)),
+                          index=gdf.index), inplace=True)
         else:
-            gdf[col_construction_year] = rng.normal(year_mu, year_sigma,
-                                                    size=len(gdf))
+            gdf[col_construction_year].fillna(
+                pd.Series(rng.normal(year_mu, year_sigma, size=len(gdf)),
+                          index=gdf.index), inplace=True)
             gdf[col_construction_year] = \
                 gdf[col_construction_year].astype('int')
 
     if col_refurbished_state is not None:
-        gdf[col_refurbished_state] = rng.choice(
-            ['not refurbished', 'slightly refurbished', 'mostly refurbished'],
-            size=len(gdf), p=refurbished_weights)
+        if col_refurbished_state not in gdf.columns:
+            gdf[col_refurbished_state] = np.nan
+
+        gdf[col_refurbished_state].fillna(
+            pd.Series(rng.choice(refurbished_states, size=len(gdf),
+                                 p=refurbished_weights),
+                      index=gdf.index), inplace=True)
 
     return gdf
 
