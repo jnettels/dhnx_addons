@@ -354,6 +354,7 @@ def workflow_default(buildings, show_plot=True):
 
     buildings = assign_random_construction_classification(
         buildings,
+        col_refurbished_state=None,
         refurbished_weights=None,
         year_mu=1950, year_sigma=18,
         )
@@ -1166,7 +1167,8 @@ def assign_random_construction_classification(
 
         refurbished_weights (list): List of three floats, defining the
         probabilities associated with the states 'not refurbished',
-        'slightly refurbished' and 'mostly refurbished'
+        'slightly refurbished' and 'mostly refurbished'. If None, a uniform
+        distribution is used (which is probably not desired).
 
         col_construction_year(str): If not None, this column name is used
         to store the generated random year values.
@@ -1178,8 +1180,8 @@ def assign_random_construction_classification(
         year_sigma (int): (See year_mu)
 
 
-    Columns 'refurbished_state' and 'construction_year
-    Afterwards, set_heat_demand_from_construction_classification() can be used.
+    Columns 'refurbished_state' and 'construction_year' are set.
+    Afterwards, set_heat_demand_from_source_arge() can be used.
     """
     logger.info('Assign random construction classification')
 
@@ -1228,13 +1230,12 @@ def assign_construction_classification_from_arge(
 
     The source ARGE defines probabilities of three refurbishement states,
     based on building type and construction year.
-    For each building, draw a random refurbishement states based on its
-    assigned probabilities.
+    For each building, draw a random refurbishement state based on its
+    assigned probabilities. Existing refurbishment states are not overwritten.
 
-    The original source defines single- and multi family homes (SFH, MFH)
-
-    TODO: Allow additional building types. These are given the mean
-    of the available source building types.
+    The original source defines single- and multi family homes (SFH, MFH).
+    By setting the arguments 'aliases_SFH' and 'aliases_MFH' to lists of
+    building type names, those will be treated as SFH or MFH, respectively.
 
     'construction_year':
         - Various age classes until 2008
@@ -1284,7 +1285,11 @@ def assign_construction_classification_from_arge(
     # Finally, reduce the DataFrame to one column with the selected choice
     # and assign it to the original DataFrame. Since the index was kept,
     # everything should align, despite dropping NaN.
-    gdf[col_refurbished_state] = df_selections.idxmax(axis=1)
+    if col_refurbished_state not in gdf.columns:
+        gdf[col_refurbished_state] = np.nan
+
+    gdf[col_refurbished_state].fillna(df_selections.idxmax(axis=1),
+                                      inplace=True)
 
     # Test the results
     # for building_type in ['SFH', 'MFH']:
