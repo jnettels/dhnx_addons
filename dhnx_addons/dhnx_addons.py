@@ -154,6 +154,8 @@ Solution:
 """
 
 import os
+import sys
+import subprocess
 import re
 import io
 import json
@@ -796,6 +798,71 @@ def save_excel(df, path, **kwargs):
     except PermissionError:
         input("Please close the file to allow saving! Then hit Enter.")
         save_excel(df_save, path, **kwargs)
+
+
+def merge_with_ogr(paths, merge_target, crs="EPSG:25832", layer=None):
+    """Merge all files in paths into one output file with ogr2ogr.
+
+    Sometimes loading geodata files with pandas or even fiona fails for
+    various reasons. It may instead help to convert files into another format
+    with ogr2ogr directly.
+
+    ogr2ogr comes with the installation of gdal (``conda install gdal``)
+
+    https://gdal.org/programs/ogr2ogr.html
+
+    Useful formats:
+        - "ESRI Shapefile"
+        - "GPKG"
+
+    Known issue:
+        - The maximum length of each field is defined by the first file
+          loaded. If longer values in the same field appear in later
+          files, a warning is displayed
+    """
+    # This function requires access to the program ogr2ogr.exe
+    # If python gdal is installed, it should be available in the following
+    # path, so that is added to the system PATH.
+    ogr2ogr_exe = os.path.join(os.path.dirname(sys.executable),
+                               'Library/bin/ogr2ogr.exe')
+    if os.path.exists(ogr2ogr_exe):
+        os.environ['PATH'] += os.pathsep + os.path.dirname(ogr2ogr_exe)
+
+    filename, ext = os.path.splitext(os.path.basename(merge_target))
+    if ext == '.gpkg':
+        format_ = 'GPKG'
+    elif ext == '.shp':
+        format_ = 'ESRI Shapefile'
+    else:
+        raise ValueError(f"Undefined extension '{ext}'")
+
+    if layer is None:
+        layer = filename
+
+    if not os.path.exists(os.path.dirname(merge_target)):
+        os.makedirs(os.path.dirname(merge_target))
+
+    if os.path.exists(merge_target):
+        # The file has to be removed before recreating it
+        os.remove(merge_target)
+
+    for src_file in paths:
+        logger.debug(src_file)
+        # Create one merged gpkg-file for all gml files
+        output = subprocess.check_output(
+            ['ogr2ogr', '-f', format_, merge_target, src_file,
+             '-dim', '3', '-s_SRS', crs, '-t_SRS', crs,
+             # '-oo', 'REMOVE_UNUSED_FIELDS=YES',
+             # '-oo', 'REMOVE_UNUSED_LAYERS=YES',
+             '-append', '-update',
+             '-nln', layer,  # new layer name, instead of one layer per file
+             # "building", "consistsofbuildingpart",
+             ],
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+            )
+        if len(output) > 0:
+            logging.warning(output)
 
 
 # Section "Buildings and heat demand"
