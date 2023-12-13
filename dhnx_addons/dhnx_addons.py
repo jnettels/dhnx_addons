@@ -3643,9 +3643,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     """
     if df_load_ts_slice is not None and col_p_th is not None:
         raise ValueError("Only one of 'col_p_th' and 'df_load_ts_slice' "
-                         "can be defined. (To use the values of a single "
-                         "value as each building's thermal power or "
-                         "a time series for each building.)")
+                         "can be defined. (To use a single thermal power "
+                         "value or a time series of thermal powers for "
+                         "each building.)")
 
     elif df_load_ts_slice is None and col_p_th is not None:
         # Specific column name for thermal power is required for DHNX
@@ -3657,10 +3657,17 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         gdf_poly_houses['P_heat_max'] = gdf_poly_houses[col_p_th]
 
     if ((df_load_ts_slice is None) and
-       ('P_heat_max' not in gdf_poly_houses.columns)):
+       (col_p_th not in gdf_poly_houses.columns)):
         raise ValueError("The thermal load of each house in gdf_poly_houses "
-                         "needs to be given via column 'P_heat_max' or via "
+                         f"needs to be given via column '{col_p_th}' or via "
                          "a separate timeseries df_load_ts_slice")
+
+    if df_load_ts_slice is not None and simultaneity != 1:
+        logger.warning("By defining 'df_load_ts_slice', a time series is "
+                       "used for the thermal power of each building, which "
+                       "is a method of introducing simultaneity effects. "
+                       "Defining an additional simultaneity factor might "
+                       "lead to undesired results (i.e. too small pipes).")
 
     # process the geometry
     tn_input = dhnx.gistools.connect_points.process_geometry(
