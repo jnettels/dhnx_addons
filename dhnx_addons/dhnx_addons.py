@@ -27,81 +27,129 @@ Useful resources
 Common errors & solutions
 -------------------------
 
-.. code::
+Error:
 
-    Cannot mix incompatible Qt library (5.15.8) with this library (5.15.6)
+    .. code::
 
-Qt is a library for graphical user interfaces.
-This error can occur when you have separate conda environments with
-different versions of the package "PyQt5". It should be solved by
-making sure your new environments use the same version as your base
-environment.
-In the example above, we can run the command
+        Cannot mix incompatible Qt library (5.15.8) with this library (5.15.6)
 
-``conda list qt``
+Solution:
 
-to find the actual package name that causes the issue and then e.g.
+    Qt is a library for graphical user interfaces.
+    This error can occur when you have separate conda environments with
+    different versions of the package "PyQt5". It should be solved by
+    making sure your new environments use the same version as your base
+    environment.
+    In the example above, we can run the command
 
-``conda install qt-main==5.15.6``
+    ``conda list qt``
 
+    to find the actual package name that causes the issue and then e.g.
 
-.. code::
+    ``conda install qt-main==5.15.6``
 
-    OSError: exception: access violation reading 0xFFFFFFFFFFFFFFFF
+Error:
 
-This could occur with pygeos-0.12.0 (comes with tobler-0.9.0). It should
-not happen with up-to-date packages.
+    .. code::
 
+        OSError: exception: access violation reading 0xFFFFFFFFFFFFFFFF
 
-.. code::
+Solution:
 
-    from rasterio._version import gdal_version, get_geos_version, get_proj_version
-    ImportError: DLL load failed while importing _version:
-        Die angegebene Prozedur wurde nicht gefunden.
+    This could occur with pygeos-0.12.0 (comes with tobler-0.9.0). It
+    should not happen with up-to-date packages.
 
-Solution: Place ``import osgeo`` before rasterio is imported by fiona
-or contextily.
-See https://gis.stackexchange.com/a/450445/135438
+Error:
 
+    .. code::
 
-.. code::
+        from rasterio._version import gdal_version, get_geos_version, get_proj_version
+        ImportError: DLL load failed while importing _version:
+            Die angegebene Prozedur wurde nicht gefunden.
 
-    AttributeError: partially initialized module 'fiona' has no attribute
-    '_loading' (most likely due to a circular import)
+Solution:
 
-Solution: Place ``import fiona`` before ``import dhnx_addons`` in your
-script.
+    Place ``import osgeo`` before rasterio is imported by fiona
+    or contextily.
+    See https://gis.stackexchange.com/a/450445/135438
 
+Error:
 
-.. code::
+    .. code::
 
-    WARNING: Cannot find header.dxf (GDAL_DATA is not defined)
+        AttributeError: partially initialized module 'fiona' has no
+        attribute '_loading' (most likely due to a circular import)
 
-This is not an error, just a warning. But it can be fixed by setting
-the 'GDAL_DATA' environment variable:
+Solution:
 
-``os.environ['GDAL_DATA'] = os.path.join(os.path.dirname(sys.executable),
-'Library/share/gdal')``
+    Place ``import fiona`` before ``import dhnx_addons`` in your script.
 
+Error:
 
-.. code::
+    .. code::
 
-    Windows fatal exception: stack overflow
+        WARNING: Cannot find header.dxf (GDAL_DATA is not defined)
 
-    Main thread:
-    Current thread 0x0000a5bc (most recent call first):
-      File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 531 in get
-      File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 547 in save
-      ...
+Solution:
 
-I implemented the cache from joblib.Memory, because it can save a lot of
-time when running with the exact same settings multiple times.
-However, sometimes it seems to cause this error. In that case it should
-help to clear the cache by putting one of the following lines in front
-of the line where ``lpagg_run()`` or ``dhnx_run()`` are called.
+    This is not an error, just a warning. But it can be fixed by setting
+    the 'GDAL_DATA' environment variable:
 
-- ``dhnx_addons.lpagg_run.clear()  # Clear cached results``
-- ``dhnx_addons.dhnx_run.clear()  # Clear cached results``
+    .. code::
+
+        os.environ['GDAL_DATA'] = os.path.join(
+            os.path.dirname(sys.executable), 'Library/share/gdal')
+
+Error:
+
+    .. code::
+
+        Windows fatal exception: stack overflow
+
+        Main thread:
+        Current thread 0x0000a5bc (most recent call first):
+          File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 531 in get
+          File "C:\Users\**\anaconda3\envs\work\lib\pickle.py", line 547 in save
+          ...
+
+Solution:
+
+    I implemented the cache from joblib.Memory, because it can save a lot
+    of time when running with the exact same settings multiple times.
+    However, sometimes it seems to cause this error. In that case it should
+    help to clear the cache by putting one of the following lines in front
+    of the line where ``lpagg_run()`` or ``dhnx_run()`` are called.
+
+    - ``dhnx_addons.lpagg_run.clear()  # Clear cached results``
+    - ``dhnx_addons.dhnx_run.clear()  # Clear cached results``
+
+Error:
+
+    .. code::
+
+        ModuleNotFoundError: No module named '_gdal'
+
+Solution:
+
+    This error appeared during the import of osgeo or fiona. It happend
+    after creating a python environment with a gdal version different
+    from the one installed in the base environment. That version of gdal
+    was used, because it's gdal.dll was found in the system path.
+    Removing that entry from the system path and setting an env
+    variable recommended by gdal solved the issue.
+
+    .. code::
+
+        # Remove path that contains the conflicting gdal.dll
+        PATH = os.environ['PATH'].split(os.pathsep)
+        path_anaconda_bin = os.path.join(os.path.expanduser('~'),
+                                         'anaconda3', 'Library', 'bin')
+        while path_anaconda_bin in PATH:
+            PATH.remove(path_anaconda_bin)
+        os.environ['PATH'] = os.pathsep.join(PATH)
+
+        # Let gdal search for the required dll
+        os.environ['USE_PATH_FOR_GDAL_PYTHON'] = 'YES'
 
 """
 
