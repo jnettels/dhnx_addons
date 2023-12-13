@@ -3948,6 +3948,17 @@ def calc_lineralized_pipe_input(
         axis='columns')
     df["T_ground [°C]"] = T_ground
 
+    # The user has the option to assign a factor to each U-value and cost
+    # value, to mark whether the meter unit represents trench length (single
+    # line length) or total pipe length (double line length)
+    if 'f_length_loss' in df.columns:
+        df['U-value [W/mK]'] = df['U-value [W/mK]'] * df['f_length_loss']
+        df = df.drop(columns=['f_length_loss'])  # Drop the used factor
+    if 'f_length_cost' in df.columns:
+        df['Costs [€/m]'] = df['Costs [€/m]'] * df['f_length_cost']
+        df = df.drop(columns=['f_length_cost'])  # Drop the used factor
+
+    # Now the maximum power capacity can be calculated
     df = calc_pipes_p_max(df)
 
     # The last step is the linearisation of the cost  and loss parameter for
@@ -4074,9 +4085,8 @@ def apply_DN(gdf_pipes, df_DN):
     return gdf_pipes
 
 
-def get_total_costs_and_losses(gdf_pipes, df_DN, f_length_cost=1,
-                               f_length_loss=2,
-                               ):
+def get_total_costs_and_losses(
+        gdf_pipes, df_DN, f_length_cost=1, f_length_loss=1):
     """Calculate total pipe costs and heat losses from specific values.
 
     If the columns ``'Costs [€/m]'`` and/or ``'P_loss [kW/m]'`` are present in
@@ -4093,11 +4103,10 @@ def get_total_costs_and_losses(gdf_pipes, df_DN, f_length_cost=1,
     data describes a double pipe and/or relates to 'Trassenmeter', the factor
     ``1`` is appropriate.
 
-    Per default, it is assumed that ``'P_loss [kW/m]'`` describes the losses
-    of a single pipe (either forward or return), requiring the factor 2.
-    However, ``'Costs [€/m]'`` are commonly given as a total value for
-    materials and labor per trench length ('Trassenmeter'), requiring
-    the factor 1.
+    With the default factor 1 for both ``'P_loss [kW/m]'`` and
+    ``'Costs [€/m]'``, it is assumed that they already describe the
+    losses and costs of forward and return pipe, i.e. are related to
+    the trench length.
 
     If the factors are already present as columns in ``df_DN``, those
     values are used instead.
@@ -4173,7 +4182,9 @@ def calc_pipes_p_max(df):
 
 
 def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
-                   save_path='result_pandapipes'):
+                   save_path='result_pandapipes',
+                   P_th_kW=None,
+                   f_length_loss=2):
     r"""Run pandapipes simulation with result network from dhnx.
 
     While DHNx uses a thermal transmittance (U-value) in unit W/mK for
@@ -4198,6 +4209,13 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     :math:`\alpha = \frac{U}{d\cdot \pi}`
 
+    f_length_loss: It is assumed that the U-value in df_DN describes the total
+    losses of forward and return flow, because this is required for DHNx
+    to include the total losses in its calculation. In contrast, for the
+    pandapipes calculation, we only want to evaluate pressure losses and
+    temperature drop along the forward flow. Therefore the U-value in
+    df_DN is divided by f_length_loss, i.e. halfed by default.
+
     """
     import math
     import pandapipes as pp
@@ -4205,7 +4223,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Define the pandapipes parameters
     pressure_net = 12  # [bar] (Pressure at the heat supply)
-    pressure_pn = 20
+    pressure_pn = 20  # [bar] The nominal pressure (used as initial value)
     p = pressure_net * 100000  # pressure in [Pa]
 
     if df_DN is None:  # Use some default values
@@ -4220,7 +4238,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Calculate heat transfer coefficient for pandapipes (see docstring above)
     df_DN["alpha [W/m2K]"] = df_DN['U-value [W/mK]'].div(
-        df_DN['Inner diameter [m]'] * math.pi)
+        df_DN['Inner diameter [m]'] * math.pi * f_length_loss)
 
     # Get required physical properties of water
     cp = PropsSI('C', 'T', feed_temp, 'P', p, 'IF97::Water') * 0.001  # [kJ/(kg K)]
@@ -4233,9 +4251,41 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     pipes = gdf_pipes.copy()
 
     # prepare the consumers dataframe
-
     # calculate massflow for each consumer and producer
-    consumers['massflow'] = consumers['P_heat_max'].div(cp * dT)
+    # Do not use the maximum power of each consumer, but a power that
+    # considers the simultaneity. This must be provided by the user, either
+    # as a name of a column in 'consumers', or as a series (or list, array)
+    # with an entry for each consumer
+    if P_th_kW is None:
+        P_th_kW = 'P_heat_max'
+        logger.warning("The pandapipes simulation requires a thermal power "
+                       f"for each consumer. Per default, the column {P_th_kW} "
+                       "in the consumers table is used. But this only makes "
+                       "sense if the network was designed with a "
+                       "simultaneity factor = 1, which is rarely the case. "
+                       "Instead, please provide the name of a column that "
+                       "contains the thermal power including the "
+                       "simultaneity, or a list of those values with the "
+                       "argument 'P_th_kW.")
+    if isinstance(P_th_kW, str):
+        if P_th_kW in consumers.columns:
+            P_th_kW = consumers[P_th_kW]
+        else:
+            raise ValueError(
+                "Pandapipes requires a thermal power for each consumer. "
+                f"The provided string {P_th_kW} is not found in the columns "
+                "of the consumer table")
+    elif isinstance(P_th_kW, pd.Series) or isinstance(P_th_kW, pd.DataFrame):
+        # The dhnx consumer index is always of dtype string. Catch case where
+        # the index of P_th_kW might be int or float and can be converted
+        if (P_th_kW.index != consumers.index).any():
+            P_th_kW.index = P_th_kW.index.astype(str)
+            if (P_th_kW.index != consumers.index).any():
+                raise ValueError(
+                    "Cannot match the indices of the DHNx consumers and "
+                    "the given thermal power for each consumer.")
+
+    consumers['massflow'] = P_th_kW / (cp * dT)  # [kg/s]
 
     # prepare the pipes dataframe
 
@@ -4334,13 +4384,13 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Execute the pandapipes simulation
     pp.pipeflow(
-        pp_net, stop_condition="tol", iter=3, friction_model="colebrook",
-        mode="all", transient=False, nonlinear_method="automatic", tol_p=1e-3,
-        tol_v=1e-3,
+        pp_net, stop_condition="tol", iter=10, friction_model="colebrook",
+        mode="all", transient=False, nonlinear_method="automatic", tol_p=1e-4,
+        tol_v=1e-4,
     )
 
-    print(pp_net.res_junction.head(n=8))
-    print(pp_net.res_pipe.head(n=8))
+    # print(pp_net.res_junction.head(n=8))
+    # print(pp_net.res_pipe.head(n=8))
 
     # Export results to Excel
     if save_path is not None:
@@ -4372,46 +4422,41 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     if save_path is not None:
         # export the GeoDataFrames with the simulation results to .geojson
-        save_geojson(pipes, 'pandapipes_result.geojson', path=save_path)
+        save_geojson(pipes, 'pandapipes_result', path=save_path)
 
     # Plot the results of pandapipes simulation
-    # Plots pressure of pipes' ending nodes
     if show_plot:
-        _, ax = plt.subplots(figsize=(20, 10), dpi=300)
-        network.components['consumers'].plot(ax=ax, color='green')
-        network.components['producers'].plot(ax=ax, color='red')
-        # network.components['forks'].plot(ax=ax, color='grey')
-        pipes.plot(
-            ax=ax,
-            column='p_to_bar',
-            legend=True, legend_kwds={'label': "Pressure [bar]",
-                                      'shrink': 0.5},
-            cmap='cividis',
-            linewidth=1,
-            zorder=2
-        )
-        plt.title('Pressure')
-        plt.tight_layout()
-        plt.show()
+        # Plot pressure of pipes' ending nodes
+        plot_geometries(
+            [network.components['consumers'],
+             network.components['producers'],
+             pipes],
+            plt_kwargs=[dict(label='Consumer'),
+                        dict(label='Producer'),
+                        dict(column='p_to_bar', linewidth=2, legend=True,
+                             label='Pipelines',
+                             cmap='cividis',
+                             legend_kwds={'label': 'Pressure [bar]'})],
+            # plot_basemap=True,
+            title='Pressure distribution',
+            set_axis_off=True,
+            dpi=300)
 
         # Plot temperature of pipes' ending nodes
-        _, ax = plt.subplots(figsize=(20, 10), dpi=300)
-        network.components['consumers'].plot(ax=ax, color='green')
-        network.components['producers'].plot(ax=ax, color='red')
-        # network.components['forks'].plot(ax=ax, color='grey')
-        pipes.plot(
-            ax=ax,
-            column='t_to_°C',
-            legend=True,
-            legend_kwds={'label': "Temperature [°C]",
-                         'shrink': 0.5},
-            cmap='Wistia',
-            linewidth=1,
-            zorder=2
-        )
-        plt.title('Temperature')
-        plt.tight_layout()
-        plt.show()
+        plot_geometries(
+            [network.components['consumers'],
+             network.components['producers'],
+             pipes],
+            plt_kwargs=[dict(label='Consumer'),
+                        dict(label='Producer'),
+                        dict(column='t_to_°C', linewidth=2, legend=True,
+                             label='Pipelines',
+                             cmap='Wistia',
+                             legend_kwds={'label': 'Temperature [°C]'})],
+            # plot_basemap=True,
+            title='Temperature distribution',
+            set_axis_off=True,
+            dpi=300)
 
     return pipes
 
