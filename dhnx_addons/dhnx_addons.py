@@ -381,9 +381,17 @@ def workflow_example_openstreetmap(
         },
         )
 
-    pandapipes_run(network, gdf_pipes, df_DN, show_plot=show_plot)
+    # Run a pandapipes simulation with the results of DHNx. Choose e.g.
+    # the time of overall maximum thermal power demand in df_load_ts_slice
+    # or the maximum thermal power multiplied with a simultaneity factor
+    # as an input for the thermal power of each consumer
+    pandapipes_run(
+        network, gdf_pipes, df_DN, show_plot=show_plot,
+        P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.max(axis=1).idxmax()],
+        # P_th_kW=network.components['consumers']['P_heat_max']*0.5,
+        )
 
-    # It is possible to download the elevation data for the current area
+    # Download the elevation data for the current area
     download_elevation_data(gdf_houses, show_plot=show_plot)
 
 
