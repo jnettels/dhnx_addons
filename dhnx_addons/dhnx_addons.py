@@ -3565,7 +3565,7 @@ def clean_previous_street_results(gdf):
     return gdf
 
 
-@memory.cache
+# @memory.cache  # Deactivated, as it sometimes causes stack overflow exception
 def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
              path_invest_data='invest_data',
@@ -4615,7 +4615,7 @@ def cache_validation_cb(metadata):
     return metadata['input_args'].get('use_cache', True)
 
 
-@memory.cache
+# @memory.cache  # Useful if it works, but can cause issues
 def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
               **cfg_kwargs):
     """Replace the __main__.py script from the regular LPagg program.
