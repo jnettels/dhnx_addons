@@ -3219,7 +3219,7 @@ def download_country_borders_from_osm(
     # Unused experiments:
 
     tags = {"boundary": 'administrative'}
-    gdf = ox.geometries_from_polygon(area.geometry[0], tags=tags)
+    gdf = ox.features_from_polygon(area.geometry[0], tags=tags)
 
     plot_geometries([gdf], plot_basemap=True)
     plot_geometries([area], plot_basemap=True)
@@ -3296,7 +3296,10 @@ def download_buildings_from_osm(
             crs=gdf_polygon.crs)
 
     polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
-    gdf = ox.geometries_from_polygon(polygon, tags=building_tags)
+    try:  # osmnx>=1.5.0
+        gdf = ox.features_from_polygon(polygon, tags=building_tags)
+    except AttributeError:  # osmnx<1.5.0
+        gdf = ox.geometries_from_polygon(polygon, tags=building_tags)
 
     # Convert to target crs
     gdf.to_crs(crs=crs, inplace=True)
@@ -3386,7 +3389,10 @@ def download_streets_from_osm(
     # Download the street network data from OpenStreetMap
     streets = dict({'highway': highway_keys})
     # Option 1) Create GeoDataFrame object from the polygon
-    # gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
+    # try:  # osmnx>=1.5.0
+    #     gdf_lines_streets = ox.features_from_polygon(polygon, tags=streets)
+    # except AttributeError:  # osmnx<1.5.0
+    #     gdf_lines_streets = ox.geometries_from_polygon(polygon, tags=streets)
 
     # Option 2) Download as a graph and convert to GeoDataFrame
     # Gives more options to use osmnx functions for simplifying the network
