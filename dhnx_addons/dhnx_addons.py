@@ -997,7 +997,7 @@ def assign_alkis_functions_to_osm_building_keys(
         'Verwaltungsgebäude': 'government',
         'Waschstraße, Waschanlage, Waschhalle': 'service',
         'Wasserbehälter': 'storage_tank',
-        'Wassertutm': 'water_tower',
+        'Wasserturm': 'water_tower',
         'Windmühle': 'tower',
         'Wohngebäude': 'residential',
         'Wohngebäude mit Gemeinbedarf': 'apartments',
@@ -2053,7 +2053,8 @@ def calculate_avg_level_height(
         # Create another column 'mix' where the mean is replaced with the
         # fit function if the count is too low.
         test['mix'] = test['mean']
-        test.loc[test['count'] < 100, 'mix'] = test['fit1']
+        test.loc[(test['count'] < 100) & test['fit1'].notna(),
+                 'mix'] = test['fit1']
 
         # We can now choose the mean per group or one of the fit functions
         # as the input for all buildings with undefined level height
@@ -2466,9 +2467,9 @@ def check_crs(gdf, crs="EPSG:4647"):
 
 
 def merge_xyz_dtm(file_list, output_file=None, show_plot=False):
-    """Merge the given 'digital terrain/elevation model' files into one.
+    """Merge given 'digital terrain/elevation/surface model' files into one.
 
-    The DTM/DEM files must be in the xyz format.
+    The DTM/DEM/DSM files must be in the xyz format.
     """
     df = pd.concat(
         [pd.read_csv(file, delim_whitespace=True) for file in file_list]
@@ -3711,6 +3712,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                 T_FF=80, T_RF=50, T_ground=10, dP_max=150,
                 show_plot=show_plot))
         export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
+        if save_path is not None:
+            save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
     else:
         logger.info("Provide a file '%s' with pipe properties per DN for "
                     "a custom lineralized optimization input. File not found, "
@@ -3784,9 +3787,14 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         network.optimize_investment(invest_options=invest_opt, **settings)
     except ValueError as e:
         logger.exception(e)
-        breakpoint()
         logger.error("The district heating grid network optimization "
-                     "failed with an error")
+                     "failed with an error. Examples for possible reasons:\n"
+                     "- Largest pipe cannot carry the required capacity. "
+                     "Adding larger DNs to the list of available pipes "
+                     "might solve the error.\n"
+                     "- The given producers, if limited in their capacity, "
+                     "cannot provide the required capacity.")
+        breakpoint()
 
     # Part IV: Check the results #############
 
@@ -3862,7 +3870,11 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     df_pipes = (df_pipes.set_index('type')
                 .groupby(['type', 'DN'])
                 .sum(numeric_only=True))
-    # df_pipes = df_pipes[['length']]
+    try:
+        df_pipes = df_pipes[['length', 'capacity', 'Cost_lin [€]',
+                             'P_loss_lin [kW]', 'Cost [€]', 'P_loss [kW]']]
+    except KeyError:
+        pass
     save_excel(df_pipes, os.path.join(save_path, 'WN_pipes.xlsx'))
 
     return_dict = {'network': network,
@@ -3919,8 +3931,6 @@ def calc_lineralized_pipe_input(
         path_pipe_data="input/Pipe_data.csv",
         T_FF=80, T_RF=50, T_ground=10, dP_max=150,
         show_plot=False):
-    # ## b) Pre-calculate the hydraulic parameter
-
     # Besides the geometries, we need the techno-economic data for the
     # investment optimisation of the DHS piping network. Therefore, we load
     # the pipes data table. This is the information you need from your
@@ -3928,7 +3938,7 @@ def calc_lineralized_pipe_input(
     if os.path.splitext(path_pipe_data)[1] == '.xlsx':
         df = pd.read_excel(path_pipe_data)
     else:
-        df = pd.read_csv("input/Pipe_data.csv", sep=",")
+        df = pd.read_csv(path_pipe_data, sep=",")
 
     # This is an example of input data. The Roughness refers to the roughness of
     # the inner surface and depends on the material (steel, plastic). The U-value
@@ -4054,13 +4064,13 @@ def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path="."):
     df_DN = calc_pipes_p_max(df_DN)
 
     if save_path is not None:
-        df_DN.to_excel(os.path.join(save_path, 'DN_table.xlsx'))
+        save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
 
     return df_DN
 
 
 def apply_DN(gdf_pipes, df_DN):
-    """Apply norm diameter of pipesin gdf_pipes from capacity in df_DN."""
+    """Apply norm diameter of pipes in gdf_pipes from capacity in df_DN."""
     # Now apply the norm diameter to the pipes dataframe
     gdf_pipes['DN'] = 0  # default for (near) zero capacities
 
@@ -4596,6 +4606,7 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
             os.path.dirname(lpagg.__file__),
             "resources_weather",
             "TRY2010_{:02d}_Jahr.dat".format(int(TRY)))
+        logger.info("Using default DWD weather file for TRY region %s", TRY)
 
     settings = cfg_kwargs
     # Settings for weather data
@@ -4669,7 +4680,7 @@ def cache_validation_cb(metadata):
 
 # @memory.cache  # Useful if it works, but can cause issues
 def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
-              **cfg_kwargs):
+              power_slice_buffer=0, **cfg_kwargs):
     """Replace the __main__.py script from the regular LPagg program.
 
     This function uses a 'cache': The results from a run are stored in
@@ -4706,8 +4717,10 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
     lpagg.agg.plot_and_print(agg_dict['weather_data'], cfg)
 
     # Postprocessing
-    df_load_ts_slice = lpagg_get_max_power_slice(agg_dict['load_curve_houses'],
-                                                 show_plot=show_plot)
+    df_load_ts_slice = lpagg_get_max_power_slice(
+        agg_dict['load_curve_houses'],
+        buffer=power_slice_buffer,
+        show_plot=show_plot)
     gdf = lpagg_merge_houses_and_load(gdf, agg_dict['P_max_houses'],
                                       E_th_col=E_th_col)
 
@@ -4796,7 +4809,12 @@ def lpagg_merge_houses_and_load(
 def download_elevation_data(
         gdf, crs=None, ext='geotiff', path='./cache/wms_dgm200_inspire',
         show_plot=False):
-    """Download elevation data for a region defined by the bounds of gdf."""
+    """Download elevation data for a region defined by the bounds of gdf.
+
+    Returns:
+        gdf_elevation (geopandas GeoDataFrame): A GeoDataFrame containing the
+        elevation data as raster.
+    """
     import rasterio
     from rasterio.features import shapes
     from owslib.wms import WebMapService
