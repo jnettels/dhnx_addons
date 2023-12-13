@@ -208,13 +208,13 @@ except ImportError as e:
                    "'conda install tobler>=0.8.0 -c conda-forge'")
 try:
     import dhnx
+    if parse(dhnx.__version__) < parse("0.0.3"):
+        raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
+                          ") is lower than the tested version (0.0.3)")
 except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'dhnx' can be installed with "
                    "pip install dhnx==0.0.3")
-if parse(dhnx.__version__) < parse("0.0.3"):
-    raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
-                      ") is lower than the tested version (0.0.3)")
 
 try:
     import contextily
