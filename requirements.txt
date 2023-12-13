@@ -15,6 +15,7 @@ matplotlib
 osmnx
 coolprop
 fiona
+gdal >= 3.7  # Fix for CityGML
 rasterio
 tobler
 h3-py

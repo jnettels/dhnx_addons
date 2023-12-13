@@ -28,6 +28,7 @@ channels:
     - conda-forge
 dependencies:
     - python=3.10
+    - pip
     - pandas
     - numpy
     - numba
@@ -36,6 +37,7 @@ dependencies:
     - osmnx
     - coolprop
     - fiona
+    - gdal >= 3.7  # Fix for CityGML
     - rasterio
     - tobler
     - h3-py
@@ -81,9 +83,9 @@ dependencies:
     # Specify automatic pip installations
     - pip:
         - oemof-network
-        - oemof-solph
+        - oemof.solph==0.5.0  # oemof-solph-0.5.1 introduces an error
         - oemof-tools
-        - pandapipes
+        # - pandapipes  # building wheels fails sometimes
         # - dhnx  # Install from https://github.com/oemof/DHNx
         # - demandlib  # Install from https://github.com/jnettels/demandlib/tree/features/add-vdi-from-lpagg
 
