@@ -467,14 +467,15 @@ def load_example_area(crs='epsg:4647'):
 
 # Section "Input/Output"
 
-def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833"):
+def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833",
+                     **kwargs):
     """Load (3D) geographical data from XML files (citygml).
 
     This should not be necessary, since gpd.read_file(file) should do the
     same. But somehow this approach works, using fiona directly, while
     geopandas fails for some xml files.
     """
-    with fiona.open(file, 'r', driver=driver, layer=layer) as src:
+    with fiona.open(file, 'r', driver=driver, layer=layer, **kwargs) as src:
         features = [feature for feature in src]
     gdf = gpd.GeoDataFrame.from_features([feature for feature in features],
                                          crs=crs)
@@ -482,7 +483,7 @@ def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833"):
 
 
 def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
-                     type_errors='raise', save_excel=False, **kwargs):
+                     type_errors='coerce', save_excel=False, **kwargs):
     """Save a GeoDataFrame to a given GIS file type at the given path.
 
     This is 'just' a wrapper around geopandas.to_file(), but includes
@@ -510,7 +511,7 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
         The GeoPandas to_file() method can sometimes cause TypeErrors.
         If ‘raise’, then invalid parsing will raise an exception.
         If ‘coerce’, then invalid columns will be converted to string.
-        The default is 'raise'.
+        The default is '‘coerce’'.
     save_excel : bool, optional
         If True, also save an Excel file with the same name. The default
         is False.
@@ -587,7 +588,7 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
             _save_excel(gdf, os.path.join(path, file+'.xlsx'))
 
 
-def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
+def save_geojson(gdf, file, path='.', crs=None, type_errors='coerce',
                  save_excel=False, **kwargs):
     """Save a GeoDataFrame to geojson file at the given path.
 
@@ -599,7 +600,7 @@ def save_geojson(gdf, file, path='.', crs=None, type_errors='raise',
                      save_excel=save_excel, **kwargs)
 
 
-def save_geopackage(gdf, file, path='.', crs=None, type_errors='raise',
+def save_geopackage(gdf, file, path='.', crs=None, type_errors='coerce',
                     save_excel=False, **kwargs):
     """Save a GeoDataFrame to a GeoPackage database file at the given path.
 
