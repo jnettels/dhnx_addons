@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
         dhnx-version: ["pip", "github"]
 
     steps:
@@ -30,7 +30,8 @@ jobs:
     - name: Lint with flake8
       if: runner.os == 'Linux'  # Only needs to run once
       run: |
-        conda install flake8
+        # conda install flake8
+        pip install flake8  # conda install is currently broken
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
@@ -39,6 +40,7 @@ jobs:
     - name: Install DHNx from pip
       if: matrix.dhnx-version == 'pip'
       run: |
+        pip install oemof.solph==0.5.0  # v0.5.1 causes issues
         pip install dhnx==0.0.3
 
     - name: Install DHNx from GitHub
@@ -46,7 +48,7 @@ jobs:
       run: |
         git clone https://github.com/oemof/DHNx
         cd DHNx
-        git checkout fix/logger-usage
+        git checkout fix/oemof.solph-0.5.1
         pip install -e .
 
     - name: Install other pip packages
