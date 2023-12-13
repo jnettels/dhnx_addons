@@ -1897,20 +1897,25 @@ def set_domestic_hot_water_from_DIN18599(
 
 def set_domestic_hot_water_from_values(
         df, col_DHW='e_th_DHW_kWh', col_spec_DHW='e_th_spec_DHW',
-        col_building_type='building_type', A_ref='a_N',
-        E_th_spec_DHW_dict=dict({'SFH': 10, 'MFH': 15, 'business': 9,
+        col_building_type='building_type', A_ref='a_NRF',
+        E_th_spec_DHW_dict=dict({'SFH': 11, 'MFH': 15, 'business': 9,
                                  'other-heated-non-residential': 8})
         ):
     """Set a fixed specific domestic hot water heat per building type.
 
-    Alternative functions:
-        - set_domestic_hot_water_from_DIN18599()
-        - set_domestic_hot_water_from_values()
-
-    Unit: kWh/(m² * a) (annual energy per Area A_N defined in German EnEV)
+    This can be used as an alternative to the function
+    set_domestic_hot_water_from_DIN18599(), to define custom DHW values.
+    The example values of 11 kWh/m² for SFH and 15 kWh/m² for MFH are taken
+    from the (outdated) DIN V 18599-10:2011, referring to the area NRF.
 
     Applies only to the 'building_type' options provided in the input
     dictionary E_th_spec_DHW_dict.
+    Unit of values is kWh/(m² * a). Make sure the argument A_ref matches
+    the reference area (A_NRF, a_N, etc.) of the given values.
+
+    Alternative functions:
+        - set_domestic_hot_water_from_DIN18599()
+        - set_domestic_hot_water_from_values()
     """
     logger.info("Set fixed DHW energy demand")
     df_spec = pd.Series(E_th_spec_DHW_dict, name=col_spec_DHW)
