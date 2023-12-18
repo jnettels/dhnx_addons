@@ -3797,6 +3797,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         logger.exception(e)
         logger.error("The district heating grid network optimization "
                      "failed with an error. Examples for possible reasons:\n"
+                     "- The time limit for the solver was too short to reach "
+                     "any useful solution.\n"
                      "- Largest pipe cannot carry the required capacity. "
                      "Adding larger DNs to the list of available pipes "
                      "might solve the error.\n"
@@ -3953,18 +3955,21 @@ def calc_lineralized_pipe_input(
     # and the costs refer to the costs of the whole pipeline trench, so including
     # forward and return pipelines. The design process of DHNx is based on
     # a maximum pressure drop per meter as design criteria:
-    df["Max delta p [Pa/m]"] = dP_max
-
     # You could also define the maximum pressure drop individually for each DN
     # number.
+    if "Max delta p [Pa/m]" not in df.columns:
+        df["Max delta p [Pa/m]"] = dP_max
 
     # As further assumptions, you need to estimate the operation temperatures
     # of the district heating network in the design case:
-    df["T_forward [°C]"] = T_FF
-    df["T_return [°C]"] = T_RF
+    if "T_forward [°C]" not in df.columns:
+        df["T_forward [°C]"] = T_FF
+    if "T_return [°C]" not in df.columns:
+        df["T_return [°C]"] = T_RF
+    if "T_ground [°C]" not in df.columns:
+        df["T_ground [°C]"] = T_ground
     df['T_mean [°C]'] = df[['T_forward [°C]', 'T_return [°C]']].mean(
         axis='columns')
-    df["T_ground [°C]"] = T_ground
 
     # The user has the option to assign a factor to each U-value and cost
     # value, to mark whether the meter unit represents trench length (single
@@ -4897,7 +4902,9 @@ def download_elevation_data(
                             dict(column='raster_val', legend=True,
                                  legend_kwds=dict(label='Elevation [m]')),
                             dict(label='Area', alpha=0.5)],
-                        title='Elevation data')
+                        title='Elevation data',
+                        set_axis_off=True,
+                        )
 
     return gdf_elevation
 
