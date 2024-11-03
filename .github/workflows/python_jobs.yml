@@ -25,7 +25,8 @@ jobs:
 
     - name: Install dependencies with conda
       run: |
-        conda install --file requirements.txt -c conda-forge -c jnettels
+        # conda install --file requirements.txt -c conda-forge -c jnettels
+        conda env update -f environment.yaml
 
     - name: Lint with flake8
       if: runner.os == 'Linux'  # Only needs to run once
