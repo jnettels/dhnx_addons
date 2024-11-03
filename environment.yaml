@@ -84,7 +84,7 @@ dependencies:
     # Specify automatic pip installations
     - pip:
         - oemof-network
-        - oemof.solph==0.5.0  # oemof-solph-0.5.1 introduces an error
+        - oemof.solph
         - oemof-tools
         - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
         - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
