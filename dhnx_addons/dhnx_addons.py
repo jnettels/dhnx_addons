@@ -531,9 +531,13 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
     None.
 
     """
+    file = file.removesuffix(ext)  # Drop extension from the file name
+
     filepath = os.path.join(path, file+ext)
     if not os.path.exists(os.path.dirname(filepath)):
         os.makedirs(os.path.dirname(filepath))
+
+    gdf = gdf.copy()  # Make a copy to keep the input object unchanged
 
     if crs is None:
         if gdf.crs is None:
@@ -563,7 +567,7 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
         # ValueError("Invalid field type <class 'list'>")
         # Test which column causes the error
         for col in gdf.columns:
-            if col in gdf.select_dtypes('geometry').columns:
+            if col in gdf.select_dtypes(gdf.geometry.name).columns:
                 continue  # Do not mess with the geometry column
             try:
                 # Try to trigger the exception again, but only for this column
