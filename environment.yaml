@@ -48,6 +48,7 @@ dependencies:
     - openpyxl
     - fuzzywuzzy
     - owslib
+    - joblib
     
     # From channel jnettels
     - lpagg
