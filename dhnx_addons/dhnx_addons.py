@@ -3592,6 +3592,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
              path_invest_data='invest_data',
              path_pipe_data="input/Pipe_data.csv",
+             pipe_data_sheet_name=0,
              df_load_ts_slice=None,
              col_p_th='P_heat_max',
              bidirectional_pipes=False,
@@ -3630,6 +3631,10 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         Path to a .csv or .xlsx file with input data for district heating
         pipes (U-value, cost, etc. per norm diameter DN). The default is
         'input/Pipe_data.csv'.
+    pipe_data_sheet_name : str, optional
+        Name of the sheet to use if path_pipe_data points to an .xlsx file
+        with input data for district heating pipes. Reads the first sheet
+        by default. The default is 0.
     df_load_ts_slice : DataFrame, optional
         A DataFrame with timeseries of the thermal load
         in kW for buildings. The column names (identifier for each building)
@@ -3730,6 +3735,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         df_DN, constants_costs, constants_loss = (
             calc_lineralized_pipe_input(
                 path_pipe_data=path_pipe_data,
+                pipe_data_sheet_name=pipe_data_sheet_name,
                 T_FF=80, T_RF=50, T_ground=10, dP_max=150,
                 show_plot=show_plot))
         export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
@@ -3952,6 +3958,7 @@ def get_installed_solver(auto_install_cbc=True):
 
 def calc_lineralized_pipe_input(
         path_pipe_data="input/Pipe_data.csv",
+        pipe_data_sheet_name=0,
         T_FF=80, T_RF=50, T_ground=10, dP_max=150,
         show_plot=False):
     # Besides the geometries, we need the techno-economic data for the
@@ -3959,7 +3966,7 @@ def calc_lineralized_pipe_input(
     # the pipes data table. This is the information you need from your
     # manufacturer / from your project.
     if os.path.splitext(path_pipe_data)[1] == '.xlsx':
-        df = pd.read_excel(path_pipe_data)
+        df = pd.read_excel(path_pipe_data, sheet_name=pipe_data_sheet_name)
     else:
         df = pd.read_csv(path_pipe_data, sep=",")
 
