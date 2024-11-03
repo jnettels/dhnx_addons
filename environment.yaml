@@ -85,9 +85,9 @@ dependencies:
         - oemof-network
         - oemof.solph==0.5.0  # oemof-solph-0.5.1 introduces an error
         - oemof-tools
-        # - pandapipes  # building wheels fails sometimes
-        # - dhnx  # Install from https://github.com/oemof/DHNx
-        # - demandlib  # Install from https://github.com/jnettels/demandlib/tree/features/add-vdi-from-lpagg
+        - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
+        - pandapipes  # building wheels fails sometimes
 
 
 # run manual pip installations afterwards
