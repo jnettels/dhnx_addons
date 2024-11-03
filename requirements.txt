@@ -49,3 +49,6 @@ nose
 
 # pandapipes dependencies
 deepdiff
+
+# Installations directly from GitHub
+https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
