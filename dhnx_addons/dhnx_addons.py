@@ -1596,7 +1596,7 @@ def process_src_data_arge(
     # Apply the aliases by making copies of the correct columns
     if aliases_SFH is not None:
         for alias in aliases_SFH:
-            df = pd.concat([df, df[['SFH']].rename(columns={'MFH': alias})],
+            df = pd.concat([df, df[['SFH']].rename(columns={'SFH': alias})],
                            axis='columns')
     if aliases_MFH is not None:
         for alias in aliases_MFH:
