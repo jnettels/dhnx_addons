@@ -51,4 +51,4 @@ nose
 deepdiff
 
 # Installations directly from GitHub
-https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+-e https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
