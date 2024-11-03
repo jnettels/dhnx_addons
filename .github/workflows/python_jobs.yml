@@ -11,7 +11,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
         python-version: ["3.10", "3.11"]
-        dhnx-version: ["pip", "github"]
+        dhnx-version: ["github"]
 
     steps:
     - name: Checkout
@@ -37,23 +37,6 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: Install DHNx from pip
-      if: matrix.dhnx-version == 'pip'
-      run: |
-        pip install oemof.solph==0.5.0  # v0.5.1 causes issues
-        pip install dhnx==0.0.3
-
-    - name: Install other pip packages
-      run: |
-        pip install pandapipes
-
-    - name: Install special demandlib branch from GitHub
-      run: |
-        git clone https://github.com/jnettels/demandlib
-        cd demandlib
-        git checkout features/add-vdi-from-lpagg
-        conda develop ./src
 
     - name: Install solver cbc (Windows)
       if: runner.os == 'Windows'
