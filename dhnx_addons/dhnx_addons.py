@@ -2895,6 +2895,12 @@ def merge_with_test(df1, df2, on, find_closest_matches=False):
             raise ImportError("Finding closest matches requires 'fuzzywuzzy'. "
                               "Please install it with pip or conda.") from e
 
+    df2_duplicates = df2[on].duplicated().value_counts().get(True, 0)
+    if df2_duplicates > 0:
+        logger.warning("There are %s duplicates in column '%s' of df2. This "
+                       "will probably cause a failure of the merge",
+                       df2_duplicates, on)
+
     # Find out which elements of df2 (the new data) cannot be matched to df1
     df_test = pd.merge(left=df1, right=df2, on=on, how='outer', indicator=True)
     len_right_only = df_test['_merge'].value_counts().get('right_only', 0)
