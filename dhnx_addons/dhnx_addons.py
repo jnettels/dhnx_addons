@@ -1037,11 +1037,11 @@ def assign_alkis_functions_to_osm_building_keys(
                    buildings[col_alkis_function].isin(alkis_to_osm_building
                                                       .keys())))
         # Paste those values from "FUNKTION" column to "building_osm"
-        buildings[col_building_osm].where(~mask, buildings[col_alkis_function],
-                                          inplace=True)
+        buildings[col_building_osm] = buildings[col_building_osm].where(
+            ~mask, buildings[col_alkis_function])
         # Replace the values in "building_osm"
-        buildings[[col_building_osm]] = buildings[[col_building_osm]].replace(
-            {col_building_osm: alkis_to_osm_building})
+        buildings.replace({col_building_osm: alkis_to_osm_building},
+                          inplace=True)
 
     if show_plot:
         buildings.plot(column=col_building_osm, figsize=(20, 20), legend=True)
@@ -1113,12 +1113,12 @@ def fill_residential_osm_building_types(
     if notna_columns is not None:
         mask_notna = gdf[notna_columns].notna().all(axis='columns')
     else:
-        mask_notna = True
+        mask_notna = pd.Series([True]*len(gdf))
 
     if col_heated is not None:
         mask_heated = gdf[col_heated] == True
     else:
-        mask_heated = [True]*len(gdf)
+        mask_heated = pd.Series([True]*len(gdf))
 
     gdf.loc[mask_na & mask_area & mask_heated & mask_notna,
             col_building_osm] = 'apartments'
@@ -1323,13 +1323,17 @@ def assign_random_construction_classification(
         if col_construction_year not in gdf.columns:
             gdf[col_construction_year] = np.nan
         if year_mu is None or year_sigma is None:
-            gdf[col_construction_year].fillna(
-                pd.Series(rng.integers(low=1900, high=2008, size=len(gdf)),
-                          index=gdf.index), inplace=True)
+            gdf.fillna({col_construction_year:
+                        pd.Series(rng.integers(low=1900, high=2008,
+                                               size=len(gdf)),
+                                  index=gdf.index)},
+                       inplace=True)
         else:
-            gdf[col_construction_year].fillna(
-                pd.Series(rng.normal(year_mu, year_sigma, size=len(gdf)),
-                          index=gdf.index), inplace=True)
+            gdf.fillna({col_construction_year:
+                        pd.Series(rng.normal(year_mu, year_sigma,
+                                             size=len(gdf)),
+                                  index=gdf.index)},
+                       inplace=True)
             gdf[col_construction_year] = \
                 gdf[col_construction_year].astype('int')
 
@@ -1337,10 +1341,11 @@ def assign_random_construction_classification(
         if col_refurbished_state not in gdf.columns:
             gdf[col_refurbished_state] = np.nan
 
-        gdf[col_refurbished_state].fillna(
-            pd.Series(rng.choice(refurbished_states, size=len(gdf),
-                                 p=refurbished_weights),
-                      index=gdf.index), inplace=True)
+        gdf.fillna({col_refurbished_state:
+                    pd.Series(rng.choice(refurbished_states, size=len(gdf),
+                                         p=refurbished_weights),
+                              index=gdf.index)},
+                   inplace=True)
 
     return gdf
 
@@ -1416,8 +1421,8 @@ def assign_construction_classification_from_arge(
     if col_refurbished_state not in gdf.columns:
         gdf[col_refurbished_state] = np.nan
 
-    gdf[col_refurbished_state].fillna(df_selections.idxmax(axis=1),
-                                      inplace=True)
+    gdf.fillna({col_refurbished_state: df_selections.idxmax(axis=1)},
+               inplace=True)
 
     # Test the results
     # for building_type in ['SFH', 'MFH']:
@@ -1429,7 +1434,7 @@ def assign_construction_classification_from_arge(
     #         print(hist)
 
     if fillna_value is not None:
-        gdf[col_refurbished_state].fillna(fillna_value, inplace=True)
+        gdf.fillna({col_refurbished_state: fillna_value}, inplace=True)
 
     return gdf
 
@@ -1552,7 +1557,7 @@ def set_heat_demand_from_source_arge(
               .set_index(df_in.index))
 
     if fillna_value is not None:
-        df_out[col_spec_total].fillna(value=fillna_value, inplace=True)
+        df_out.fillna({col_spec_total: fillna_value}, inplace=True)
 
     elif df_out[col_spec_total].isna().any() and warnings == 'raise':
         n = df_out[col_spec_total].isna().value_counts().get(True, default=0)
@@ -2018,11 +2023,14 @@ def calculate_avg_level_height(
         # test.loc[test['count'] <= 10, 'mean'] = np.nan
         for building in test.index.unique(group_col1):
             if test.loc[building, 'mean'].count() == 0:
-                test.loc[building, 'mean'].fillna(
-                    test['mean'].mean(), inplace=True)
+                test.at[building, 'mean'] = \
+                    test.loc[building, 'mean'].fillna(test['mean'].mean())
+
             elif test.loc[building, 'mean'].count() == 1:
-                test.loc[building, 'mean'].fillna(
-                    test.loc[building, 'mean'].mean(), inplace=True)
+                test.at[building, 'mean'] = \
+                    test.loc[building, 'mean'].fillna(
+                        test.loc[building, 'mean'].mean())
+
             if len(test.loc[building, 'mean']) == 1:
                 continue
 
@@ -2089,10 +2097,10 @@ def calculate_avg_level_height(
         # Some buildings will still be NaN, e.g. those with building type None
         # Or those that only occur a single time (where no polyfit is possible)
         # Fill them with the global mean
-        df_tmp[col_level_height].fillna(df_level_height.mean(), inplace=True)
+        df_tmp.fillna({col_level_height: df_level_height.mean()}, inplace=True)
 
         # Fill the missing values in the input df with the group means
-        gdf[col_level_height].fillna(df_tmp[col_level_height], inplace=True)
+        gdf.fillna({col_level_height: df_tmp[col_level_height]}, inplace=True)
         gdf[col_level_height] = gdf[col_level_height].round(decimals)
 
         # Set the return value to None as a signal that instead the
@@ -2174,7 +2182,7 @@ def calculate_building_areas(
             logger.warning(f"Parsing the column(s) {_col_levels} caused "
                            f"error (which is ignored): {e}")
             make_columns_numeric(gdf, _col_levels, errors='coerce')
-        gdf[col_levels[0]].fillna(levels_default, inplace=True)
+        gdf.fillna({col_levels[0]: levels_default}, inplace=True)
         levels = gdf[_col_levels].sum(axis='columns', min_count=1)
 
     else:  # None of col_levels are in gdf.columns
@@ -2211,8 +2219,9 @@ def calculate_heat_demand(
     buildings.loc[buildings[col_heated] == True, 'e_th_DHW_kWh'] = (
         buildings['E_th_spec_DHW'].mul(buildings['a_N']))
 
-    buildings['E_th_heat_kWh'].fillna(0, inplace=True)
-    buildings['e_th_DHW_kWh'].fillna(0, inplace=True)
+    buildings.fillna({'E_th_heat_kWh': 0,
+                      'e_th_DHW_kWh': 0},
+                      inplace=True)
 
     buildings['E_th_total_kWh'] = buildings[
         ['E_th_heat_kWh', 'e_th_DHW_kWh']].sum('columns')
@@ -2374,25 +2383,25 @@ a_N,Nutzfläche nach EnEV,      0.71877,0.75024,0.64259,0.64834,0.62497,0.89437
 
     # Create a temporary DataFrame from the input
     gdf_tmp = buildings[[col_building_type]].copy()
-    gdf_tmp[col_building_type].fillna('unknown', inplace=True)
+    gdf_tmp.fillna({col_building_type: 'unknown'}, inplace=True)
     # Set the subtype for each building. Treat the aliases as if they
     # belonged to the original categories
     for alias in ['SFH'] + aliases_SFH:
         gdf_tmp.loc[gdf_tmp[col_building_type] == alias, 'subtype'
                     ] = 'w/o cellar'
-        gdf_tmp[col_building_type].replace(alias, 'SFH', inplace=True)
+        gdf_tmp.replace({col_building_type: {alias: 'SFH'}}, inplace=True)
     for alias in ['MFH'] + aliases_MFH:
         gdf_tmp.loc[gdf_tmp[col_building_type] == 'MFH', 'subtype'
                     ] = '7-19 WE'
-        gdf_tmp[col_building_type].replace(alias, 'MFH', inplace=True)
+        gdf_tmp.replace({col_building_type: {alias: 'MFH'}}, inplace=True)
     for alias in ['business'] + aliases_business:
         gdf_tmp.loc[gdf_tmp[col_building_type] == alias, 'subtype'
                     ] = 'business'
-        gdf_tmp[col_building_type].replace(alias, 'business', inplace=True)
+        gdf_tmp.replace({col_building_type: {alias: 'business'}}, inplace=True)
     for alias in ['unknown'] + aliases_unknown:
         gdf_tmp.loc[gdf_tmp[col_building_type] == alias, 'subtype'
                     ] = 'unknown'
-        gdf_tmp[col_building_type].replace(alias, 'unknown', inplace=True)
+        gdf_tmp.replace({col_building_type: {alias: 'unknown'}}, inplace=True)
 
     # Merging these DataFrames produces columns with the correct ratio for
     # each building
