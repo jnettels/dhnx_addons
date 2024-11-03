@@ -785,9 +785,9 @@ def fix_duplicate_column_names(df):
                           df.columns)
 
 
-def _save_excel(df, path):
+def _save_excel(df, path, **kwargs):
     """Save (Geo-)DataFrame as Excel (alias function)."""
-    save_excel(df, path)
+    save_excel(df, path, **kwargs)
 
 
 def save_excel(df, path, **kwargs):
