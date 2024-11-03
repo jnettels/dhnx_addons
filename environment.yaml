@@ -40,7 +40,7 @@ dependencies:
     - gdal >= 3.7  # Fix for CityGML
     - rasterio
     - tobler
-    - h3-py
+    - h3-py <4.0  # Lift restriction when tobler 0.12 is available
     - contextily
     - libpysal
     - shapely
