@@ -3614,16 +3614,10 @@ def clean_previous_street_results(gdf):
     In such a case, the generator line(s) and house lines must be removed
     from the network, and old columns are removed for savety.
     """
-    mask = gdf['type'].isin(['DL'])
-    gdf = gdf.loc[mask, [gdf.geometry.name]]
-    # gdf.drop(columns=['index', 'type', 'from_node', 'to_node', 'length',
-    #                   'existing', 'hp_type', 'from_noderesults_',
-    #                   'to_noderesults_', 'lengthresults_',
-    #                   'hp_typeresults_', 'capacity', 'direction', 'costs',
-    #                   'losses', 'DN'],
-    #          inplace=True,
-    #          errors='ignore',
-    #          )
+    if 'type' in gdf.columns:
+        mask = gdf['type'].isin(['DL'])
+        gdf = gdf.loc[mask, [gdf.geometry.name]]
+
     return gdf
 
 
