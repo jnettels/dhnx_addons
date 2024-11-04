@@ -4837,7 +4837,11 @@ def download_elevation_data(
 
     # Connect to the WebMapService
     url = 'https://sgx.geodatenzentrum.de/wms_dgm200_inspire'
-    wms = WebMapService(url, version='1.3.0')
+    try:
+        wms = WebMapService(url, version='1.3.0')
+    except Exception as e:
+        logger.exception(e)
+        return None
 
     # Specify the layer and style, by reading it from the source
     layer = list(wms.contents)[0]  # 'EL.GridCoverage'
