@@ -3494,6 +3494,8 @@ def plot_geometries(
         plot_basemap=False,
         plt_kwargs=None,
         set_axis_off=False,
+        show_plot=True,
+        save_path=None,
         **fig_kwargs,
         ):
     """Plot the given list of geometry objects.
@@ -3558,7 +3560,22 @@ def plot_geometries(
     if len(handles) > 0:
         plt.legend(handles=handles)
     plt.title(title)
-    plt.show()
+    if save_path is not None:
+        custom_plot_save(save_path)
+    if show_plot:
+        plt.show()
+
+
+def custom_plot_save(filename, folder='', dpi=750,
+                     transparent=False, extensions=['.png', '.svg']):
+    """Save plot figures to different file formats."""
+    filepath = os.path.join(folder, filename)
+    if not os.path.exists(os.path.dirname(filepath)):
+        os.makedirs(os.path.dirname(filepath))
+
+    for ext in extensions:
+        plt.savefig(filepath+ext, dpi=dpi, bbox_inches='tight',
+                    transparent=transparent)
 
 
 def plot_heated(gdf, col_heated='heated', **fig_kwargs):
