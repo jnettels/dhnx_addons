@@ -176,6 +176,7 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 from inspect import signature
+import yaml
 
 try:
     from . import cbc_installer  # local import
@@ -4764,6 +4765,12 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
 
     #  Import the cfg from the YAML config_file
     cfg = lpagg.agg.perform_configuration(cfg=cfg, ignore_errors=False)
+
+    # Store the current configuration
+    if not os.path.exists(cfg['print_folder']):
+        os.makedirs(cfg['print_folder'])
+    with open(os.path.join(cfg['print_folder'], 'lpagg_cfg.yaml'), 'w') as f:
+        yaml.dump(cfg['settings'], f, default_flow_style=False)
 
     # Now let the aggregator do its job
     agg_dict = lpagg.agg.aggregator_run(cfg)
