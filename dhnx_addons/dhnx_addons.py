@@ -3373,6 +3373,7 @@ def download_streets_from_osm(
             'primary',
             'secondary',
             'tertiary',
+            'living_street',
             'footway',
             'steps',
             'pedestrian',
@@ -3383,6 +3384,9 @@ def download_streets_from_osm(
         crs="EPSG:3857",
         show_plot=False,
         dropna_tresh=None,
+        simplify=True,
+        retain_all=False,  # retain only largest connected component for dhnx
+        truncate_by_edge=True,  # Otherwise roads might be cut off
         ):
     """Download street network data from OpenStreetMap.
 
@@ -3404,13 +3408,24 @@ def download_streets_from_osm(
         the length of the DataFrame. I.e. dropna_tresh = 0.02 means
         all columns with less than 2% entries are discarded.
 
+        simplify (bool): if True, simplify graph topology by removing all
+        nodes that are not intersections or dead-ends
+
+        retain_all (bool): if True, return the entire graph even if it
+        is not connected. otherwise, retain only the largest weakly
+        connected component.
+
+        truncate_by_edge (bool): if True, retain nodes outside boundary
+        polygon if at least one of node’s neighbors is within the polygon
+
     """
     logger.info("Download street data from OpenStreetMap")
 
     if len(gdf_polygon) > 1:
         gdf_polygon = gpd.GeoDataFrame(
             geometry=[gdf_polygon
-                      .unary_union],
+                      .unary_union
+                      .convex_hull],
             crs=gdf_polygon.crs)
     polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
 
@@ -3434,9 +3449,9 @@ def download_streets_from_osm(
 
     graph = ox.graph_from_polygon(
         polygon,
-        simplify=True,
-        retain_all=False,  # retain only largest connected component for dhnx
-        clean_periphery=False,  # Otherwise roads might be cut off
+        simplify=simplify,
+        retain_all=retain_all,  # retain only largest connected component
+        truncate_by_edge=truncate_by_edge,  # Otherwise roads might be cut off
         network_type=network_type,
         custom_filter=custom_filter,
         )
@@ -3446,7 +3461,8 @@ def download_streets_from_osm(
 
     if show_plot:
         # ox.plot_graph(graph)
-        plot_geometries(gdf_lines_streets)
+        plot_geometries([gdf_polygon, gdf_lines_streets],
+                        title='Downloaded streets')
 
     # Remove nodes column (that make somehow trouble for exporting .geojson)
     gdf_lines_streets.drop(columns=['nodes'], inplace=True, errors='ignore')
