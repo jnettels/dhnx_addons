@@ -3126,10 +3126,10 @@ def add_basemap(ax, crs, provider='OSM'):
     return ax
 
 
-def sort_from_north_to_south(gdf, col_id='ID', set_index=False):
+def sort_from_north_to_south(gdf, col_id=None, set_index=False):
     """Sort the objects in gdf from north to south.
 
-    Insert an increasing index into colum 'col_id', if given.
+    Insert an increasing index into column 'col_id', if given.
     """
     gdf['centroid_y'] = gdf.centroid.y
     gdf['centroid_x'] = gdf.centroid.x
@@ -3141,8 +3141,8 @@ def sort_from_north_to_south(gdf, col_id='ID', set_index=False):
         gdf[col_id] = range(0, len(gdf))
         gdf[col_id] = gdf[col_id].astype(str)
 
-    if set_index:
-        gdf.set_index(col_id, inplace=True)
+        if set_index:
+            gdf.set_index(col_id, inplace=True)
 
     return gdf
 
