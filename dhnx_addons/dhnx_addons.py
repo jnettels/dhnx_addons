@@ -1686,6 +1686,7 @@ def set_heat_demand_for_new_buildings(
          'SFH': [70],
          'MFH': [65],
          'business': [40],
+         'other-heated': [60],
          'other-heated-non-residential': [40],
          },
         )
