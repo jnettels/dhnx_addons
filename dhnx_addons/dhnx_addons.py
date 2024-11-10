@@ -3919,7 +3919,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # add the investment results to the geoDataFrame
     gdf_pipes = network.components['pipes']
-    gdf_pipes = gdf_pipes.join(results_edges, rsuffix='results_')
+    cols_drop = [c for c in results_edges.columns if c in gdf_pipes]
+    gdf_pipes = gdf_pipes.drop(columns=cols_drop)  # Drop duplicate columns
+    gdf_pipes = gdf_pipes.join(results_edges, rsuffix='_results')
 
     gdf_pipes = apply_DN(gdf_pipes, df_DN)  # Apply DN from capacity
     gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
@@ -3964,27 +3966,72 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Export results
     gdf_pipes = gdf_pipes[gdf_pipes['DN'] > 0]  # Keep only DN>0 in output
-    save_geojson(gdf_pipes, file='pipes_result', path=save_path)
-    save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
+    if save_path is not None:
+        save_geojson(gdf_pipes, file='pipes_result', path=save_path)
+        save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
 
     # Save grouped info about pipes
     df_pipes = gdf_pipes.copy()
     df_pipes = df_pipes[df_pipes['DN'] > 0]
-    df_pipes.replace(['DL', 'GL'], 'Verteilleitung', inplace=True)
-    df_pipes.replace(['HL'], 'Hausanschlussleitung', inplace=True)
-    df_pipes = (df_pipes.set_index('type')
-                .groupby(['type', 'DN'])
-                .sum(numeric_only=True))
-    try:
-        df_pipes = df_pipes[['length', 'capacity', 'Cost_lin [€]',
-                             'P_loss_lin [kW]', 'Cost [€]', 'P_loss [kW]']]
-    except KeyError:
-        pass
-    save_excel(df_pipes, os.path.join(save_path, 'WN_pipes.xlsx'))
+    df_pipes.replace({'type': {'DL': 'Verteilleitung',
+                               'GL': 'Erzeugerleitung',
+                               'HL': 'Hausanschlussleitung'}},
+                     inplace=True)
+
+    cols_mean = ['Inner diameter [m]', 'Roughness [mm]',
+                 'U-value [W/mK]', 'Costs [€/m]', 'T_forward [°C]',
+                 'T_return [°C]', 'T_ground [°C]', 'T_mean [°C]',
+                 'Max delta p [Pa/m]', 'v_max [m/s]', 'Mass flow [kg/s]',
+                 'P_max [kW]', 'P_loss [kW/m]']
+    cols_sum = ['length', 'capacity', 'Cost_lin [€]',
+                'P_loss_lin [kW]', 'Cost [€]', 'P_loss [kW]',
+                'E_loss [MWh]']
+    agg_dict = dict()
+    for col in df_pipes.columns:
+        if col in cols_mean:
+            agg_dict[col] = 'mean'
+        elif col in cols_sum:
+            agg_dict[col] = 'sum'
+
+    df_pipes_agg = (df_pipes.set_index('type')
+                    .groupby(['type', 'DN'])
+                    .agg(agg_dict))
+
+    df_pipes_stat = pd.Series(dtype='float')
+    df_pipes_stat['Sum length consumer [m]'] = \
+        df_pipes_agg.loc['Hausanschlussleitung', 'length'].sum()
+    df_pipes_stat['Sum length producer [m]'] = \
+        df_pipes_agg.loc['Erzeugerleitung', 'length'].sum()
+    df_pipes_stat['Sum length distribution [m]'] = \
+        df_pipes_agg.loc['Verteilleitung', 'length'].sum()
+    df_pipes_stat['Sum length [m]'] = df_pipes_agg['length'].sum()
+
+    df_pipes_stat['Sum E_loss [MWh]'] = df_pipes_agg['E_loss [MWh]'].sum()
+
+    df_pipes_stat['Sum thermal power consumers [kW]'] = (
+        df_pipes_agg.loc['Hausanschlussleitung', 'capacity'].sum()
+        - df_pipes_agg.loc['Hausanschlussleitung', 'P_loss_lin [kW]'].sum())
+
+    df_pipes_stat['ratio pipe capacity producer / consumer [-]'] = (
+        df_pipes_agg.loc['Erzeugerleitung', 'capacity'].sum()
+        / df_pipes_agg.loc['Hausanschlussleitung', 'capacity'].sum())
+
+    df_pipes_stat['DN_mean [-]'] = (
+        (df_pipes_agg['length']
+         * df_pipes_agg.index.get_level_values('DN')).sum()
+        / df_pipes_agg['length'].sum())
+
+    df_pipes_stat['U_mean [W/mK]'] = (
+        (df_pipes_agg['length'] * df_pipes_agg['U-value [W/mK]']).sum()
+        / df_pipes_agg['length'].sum())
+
+    if save_path is not None:
+        save_excel(df_pipes_agg, os.path.join(save_path, 'WN_pipes.xlsx'))
+        save_excel(df_pipes_stat, os.path.join(save_path, 'WN_pipes_stat.xlsx'))
 
     return_dict = {'network': network,
                    'gdf_pipes': gdf_pipes,
-                   'df_pipes': df_pipes,
+                   'df_pipes': df_pipes_agg,
                    'df_DN': df_DN,
                    }
 
@@ -4080,7 +4127,7 @@ def calc_lineralized_pipe_input(
     # Now the maximum power capacity can be calculated
     df = calc_pipes_p_max(df)
 
-    # The last step is the linearisation of the cost  and loss parameter for
+    # The last step is the linearisation of the cost and loss parameter for
     # the DHNx optimisation (which is based on the MILP optimisation package
     # oemof-solph)
 
@@ -4201,6 +4248,16 @@ def apply_DN(gdf_pipes, df_DN):
         elif capacity == 0:
             continue
 
+    # Also add other columns from df_DN to gdf_pipes
+    cols_select = ['DN', 'Inner diameter [m]', 'Roughness [mm]',
+                   'U-value [W/mK]', 'Costs [€/m]', 'T_forward [°C]',
+                   'T_return [°C]', 'T_ground [°C]', 'T_mean [°C]',
+                   'Max delta p [Pa/m]', 'v_max [m/s]', 'Mass flow [kg/s]',
+                   'P_max [kW]', 'P_loss [kW/m]']
+    cols_select = [c for c in cols_select if c in df_DN.columns]
+    gdf_pipes = gdf_pipes.join(
+        df_DN[cols_select].set_index('DN'), on='DN', how='left')
+
     return gdf_pipes
 
 
@@ -4241,7 +4298,8 @@ def get_total_costs_and_losses(
                               'losses': 'P_loss_lin [kW]'},
                      inplace=True)
     # Create a temporary df (with more columns than we need)
-    _gdf_pipes = gdf_pipes.join(df_DN.set_index('DN'), on='DN', how='left')
+    _gdf_pipes = gdf_pipes.join(df_DN.set_index('DN'), on='DN', how='left',
+                                rsuffix='_r')
 
     # Calculate the total costs and losses from specifics values and length
     try:
@@ -4249,13 +4307,15 @@ def get_total_costs_and_losses(
                                  * gdf_pipes.length
                                  * _gdf_pipes['f_length_cost'])
     except KeyError as e:
-        logger.error("Cost not calculated due to missing data: %s", e)
+        logger.warning("Cost not calculated due to missing data: %s", e)
     try:
         gdf_pipes['P_loss [kW]'] = (_gdf_pipes['P_loss [kW/m]']
                                     * gdf_pipes.length
                                     * _gdf_pipes['f_length_loss'])
+        # Estimate annual thermal losses with constant conditions
+        gdf_pipes['E_loss [MWh]'] = gdf_pipes['P_loss [kW]'] * 8760/1000
     except KeyError as e:
-        logger.error("Losses not calculated due to missing data: %s", e)
+        logger.warning("Losses not calculated due to missing data: %s", e)
     return gdf_pipes
 
 
