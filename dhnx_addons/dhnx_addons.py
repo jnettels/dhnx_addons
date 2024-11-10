@@ -4479,10 +4479,12 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     pipes = pipes.reset_index()
 
     # Add data of technical data sheet with the DN numbers to the pipes table
-    pipes = pipes.join(df_DN[[
-        "DN", "Inner diameter [m]", "Roughness [mm]", "U-value [W/mK]",
-        "alpha [W/m2K]",
-    ]].set_index('DN'), on='DN')
+    cols_select = ["Inner diameter [m]", "Roughness [mm]",
+                   "U-value [W/mK]", "alpha [W/m2K]"]
+    cols_select = [col for col in cols_select if col not in pipes.columns]
+    if len(cols_select) > 0:
+        cols_select.append("DN")
+        pipes = pipes.join(df_DN[cols_select].set_index('DN'), on='DN')
 
     # Create the pandapipes model
 
