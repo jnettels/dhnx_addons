@@ -44,7 +44,7 @@ dependencies:
     - h3-py
     - contextily
     - libpysal
-    - shapely >=2.0
+    - shapely
     - openpyxl
     - fuzzywuzzy
     - owslib
