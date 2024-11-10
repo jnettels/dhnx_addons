@@ -2608,8 +2608,8 @@ def combine_buildings_and_parcels(
 
 
 def make_geographic_selection(
-        buildings, gdf_selection, col_candidates=None, show_plot=True,
-        drop=False):
+        buildings, gdf_selection, col_candidates=None, show_plot=False,
+        drop=False, warn_empty=True):
     """Make a geographic selection of buildings.
 
     In column 'col_candidates' of GeoDataFrame 'buildings', only those within
@@ -2621,17 +2621,20 @@ def make_geographic_selection(
         if col_candidates not in buildings.columns:
             buildings[col_candidates] = True
 
+    # Length of GeoDataFrame needs to be reduced to 1
     if len(gdf_selection) > 1:
-        raise ValueError("Area selection can only be a single polygon")
+        gdf_selection = gpd.GeoDataFrame(
+            geometry=[gdf_selection.unary_union],
+            crs=gdf_selection.crs)
 
     # "Within" only works if both gdf share the same coordinate reference
     gdf_selection.to_crs(crs=buildings.crs, inplace=True)
-    mask1 = buildings.within(gdf_selection.loc[0, 'geometry'])
+    mask1 = buildings.within(gdf_selection.geometry.iloc[0])
     n_dropped = mask1.value_counts().get(False, default=0)
     n_remain = mask1.value_counts().get(True, default=0)
     logger.info('Buildings discarded by area selection: %s', n_dropped)
-    if n_remain == 0:
-        logger.error('No buildings left after area selection!')
+    if n_remain == 0 and warn_empty:
+        logger.warning('No buildings left after area selection!')
 
     if drop:  # Actually remove all buildings outside of selection area
         buildings = buildings.loc[mask1].copy()
