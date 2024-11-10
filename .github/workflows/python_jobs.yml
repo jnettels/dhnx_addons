@@ -5,13 +5,12 @@ on: [push, pull_request]
 jobs:
   job_1:
     runs-on: ${{ matrix.os }}
-    name: Build
+    name: Test
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
         python-version: ["3.10", "3.11"]
-        dhnx-version: ["pip", "github"]
 
     steps:
     - name: Checkout
@@ -25,7 +24,7 @@ jobs:
 
     - name: Install dependencies with conda
       run: |
-        conda install --file requirements.txt -c conda-forge -c jnettels
+        conda env update --name=__setup_conda --file=environment.yaml
 
     - name: Lint with flake8
       if: runner.os == 'Linux'  # Only needs to run once
@@ -36,31 +35,6 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: Install DHNx from pip
-      if: matrix.dhnx-version == 'pip'
-      run: |
-        pip install oemof.solph==0.5.0  # v0.5.1 causes issues
-        pip install dhnx==0.0.3
-
-    - name: Install DHNx from GitHub
-      if: matrix.dhnx-version == 'github'
-      run: |
-        git clone https://github.com/oemof/DHNx
-        cd DHNx
-        git checkout fix/oemof.solph-0.5.1
-        pip install -e .
-
-    - name: Install other pip packages
-      run: |
-        pip install pandapipes
-
-    - name: Install special demandlib branch from GitHub
-      run: |
-        git clone https://github.com/jnettels/demandlib
-        cd demandlib
-        git checkout features/add-vdi-from-lpagg
-        conda develop ./src
 
     - name: Install solver cbc (Windows)
       if: runner.os == 'Windows'
@@ -74,3 +48,38 @@ jobs:
       run: |
         cd dhnx_addons
         python dhnx_addons.py
+
+  job_2:
+    runs-on: ${{ matrix.os }}
+    name: Conda Build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.10", "3.11"]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v1  # use the latest code commit
+
+    - name: Setup conda with python ${{ matrix.python-version }}
+      uses: s-weigand/setup-conda@v1
+      with:
+        update-conda: true
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies with conda
+      run: |
+        conda install conda-build setuptools setuptools_scm
+
+    - name: Install solver cbc (Windows)
+      if: runner.os == 'Windows'
+      run: echo y | python dhnx_addons/cbc_installer.py
+
+    - name: Install solver cbc (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt install coinor-cbc -y
+
+    - name: Build with conda
+      run: |
+         conda build .\conda.recipe\ -c conda-forge
