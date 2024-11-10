@@ -165,10 +165,10 @@ from joblib import Memory
 from packaging.version import parse
 import numpy as np
 import shapely
-if parse(shapely.__version__) >= parse("2.0"):
+# if parse(shapely.__version__) >= parse("2.0"):
     # There is a weird dll import error that occurs either if osgeo is
     # imported or not, and it seems to be related to the shapely version
-    import osgeo  # import before geopandas fixes issue with rasterio, fiona
+    # import osgeo  # import before geopandas fixes issue with rasterio, fiona
 
 import pandas as pd
 import geopandas as gpd
