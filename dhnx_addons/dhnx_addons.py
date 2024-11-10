@@ -4181,17 +4181,16 @@ def export_lineralized_pipe_input(df, constants_costs, constants_loss):
 
     See DHNx documentation for details about these settings.
     """
-    df_pipes = pd.DataFrame(
-        {
-            "label_3": "pipe-generic",
-            "active": 1,
-            "nonconvex": 1,
-            "l_factor": constants_loss[0],
-            "l_factor_fix": constants_loss[1],
-            "cap_max": df['P_max [kW]'].max(),
-            "cap_min": df['P_max [kW]'].min(),
-            "capex_pipes": constants_costs[0],
-            "fix_costs": constants_costs[1],
+    df_pipes = pd.DataFrame({
+        "label_3": "pipe-generic",
+        "active": 1,
+        "nonconvex": 1,
+        "l_factor": constants_loss[0],
+        "l_factor_fix": constants_loss[1],
+        "cap_max": df['P_max [kW]'].max(),
+        "cap_min": min(1, df['P_max [kW]'].min()),  # 1 kW or smallest DN
+        "capex_pipes": constants_costs[0],
+        "fix_costs": constants_costs[1],
         }, index=[0],
     )
 
@@ -4207,7 +4206,8 @@ def export_lineralized_pipe_input(df, constants_costs, constants_loss):
 def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path="."):
     """If no pipes data is given, calculate default values here."""
     df_DN = pd.DataFrame(
-        {'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300]})
+        {'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300,
+                350, 400, 450, 500, 600, 700, 800, 900, 1000]})
 
     df_DN['Inner diameter [m]'] = df_DN['DN']/1000
     df_DN['Max delta p [Pa/m]'] = 150
