@@ -46,7 +46,9 @@ jobs:
 
     - name: Install gdal (Linux)
       if: runner.os == 'Linux'
-      run: sudo apt-get install -y cdo nco gdal-bin libgdal-dev
+      run: |
+        sudo apt-get install -y gdal-bin libgdal-dev
+        conda install -c conda-forge gdal libgdal
 
     - name: Run OpenStreetMap example workflow
       run: |
