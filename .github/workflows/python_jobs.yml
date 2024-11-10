@@ -44,6 +44,10 @@ jobs:
       if: runner.os == 'Linux'
       run: sudo apt install coinor-cbc -y
 
+    - name: Install gdal (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get install -y cdo nco gdal-bin libgdal-dev
+
     - name: Run OpenStreetMap example workflow
       run: |
         cd dhnx_addons
