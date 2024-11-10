@@ -1,0 +1,78 @@
+{% set data = load_setup_py_data() %}
+
+# Run this build with conda-forge channel, due to dependencies:
+# conda build conda.recipe -c conda-forge
+
+package:
+  name: dhnx_addons
+  version: {{ data['version'] }}
+
+source:
+    path: ..
+
+build:
+  number: {{ GIT_DESCRIBE_NUMBER }}
+
+  script: 
+        - pip install .
+
+  noarch: python
+
+  preserve_egg_dir: True
+
+requirements:
+    build:
+        - python
+        - setuptools_scm
+
+    run:
+        # dhnx_addons dependencies        
+        - python
+        - pandas
+        - numpy
+        - numba
+        - geopandas
+        - matplotlib
+        - osmnx
+        - momepy
+        - coolprop
+        - fiona
+        - gdal >=3.7  # Fix for CityGML
+        - rasterio
+        - tobler
+        - h3-py
+        - contextily
+        - libpysal
+        - shapely >=2.0
+        - openpyxl
+        - fuzzywuzzy
+        - owslib
+        
+        # From channel jnettels
+        - lpagg
+        
+        # dhnx/oemof dependencies:
+        - PyUtilib
+        - Pyomo
+        - addict
+        - blinker
+        - dill
+        - nose
+        
+        # pandapipes dependencies
+        - deepdiff 
+        
+        # The following dependencies are installed via pip
+        # They are listed here only for reference
+        # - dhnx
+        # - demandlib
+        # - pandapipes
+
+about:
+    home: https://github.com/jnettels/dhnx_addons
+    summary: 'Collection of GIS functions'
+    description: 'Collection of GIS functions'
+    license: 'MIT'
+    license_file: 'LICENSE'
+    author: 'Joris Zimmermann'
+    author_email: 'joris.zimmermann@siz-energieplus.de'

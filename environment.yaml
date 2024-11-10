@@ -27,7 +27,7 @@ channels:
     - jnettels
     - conda-forge
 dependencies:
-    - python=3.10
+    # - python=3.10
     - pip
     - pandas
     - numpy
@@ -35,39 +35,23 @@ dependencies:
     - geopandas
     - matplotlib
     - osmnx
+    - momepy
     - coolprop
     - fiona
-    - gdal >= 3.7  # Fix for CityGML
+    - gdal >=3.7  # Fix for CityGML
     - rasterio
     - tobler
     - h3-py
     - contextily
     - libpysal
-    - shapely
-    - pygeos
+    - shapely >=2.0
     - openpyxl
     - fuzzywuzzy
     - owslib
+    - joblib
     
     # From channel jnettels
     - lpagg
-    - trnpy
-
-    # Setuptools is required when using a cloned dhnx_addons repository
-    # (without actually installing it). Together with git, which must
-    # also be installed, it determines the package version in __init__.py.
-    - setuptools_scm
-
-    # To allow "conda develop"
-    - conda-build
-
-    # For SQL stuff:
-    # sqlalchemy
-    # geoalchemy2
-    # psycopg2
-
-    # Spyder dependencies: (If you want to activate the environment in Spyder)
-    # spyder-kernels=2.4  # Version number is provided by a spyder messsage
 
     # dhnx/oemof dependencies:
     - PyUtilib
@@ -82,12 +66,10 @@ dependencies:
 
     # Specify automatic pip installations
     - pip:
-        - oemof-network
-        - oemof.solph==0.5.0  # oemof-solph-0.5.1 introduces an error
-        - oemof-tools
-        # - pandapipes  # building wheels fails sometimes
-        # - dhnx  # Install from https://github.com/oemof/DHNx
-        # - demandlib  # Install from https://github.com/jnettels/demandlib/tree/features/add-vdi-from-lpagg
+        - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        - oemof.solph
+        - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
+        - pandapipes  # building wheels fails sometimes
 
 
 # run manual pip installations afterwards
