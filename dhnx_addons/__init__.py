@@ -14,6 +14,11 @@ except PackageNotFoundError:
     except (LookupError, Exception) as e:
         print(e)
         __version__ = '0.0.0'
+try:
+    import dhnx_addons.fix_gdal_import  # needs further testing
+except Exception as e:
+    print(e)
+    pass
 
 from .dhnx_addons import *
 from .cbc_installer import *
