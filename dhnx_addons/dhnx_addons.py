@@ -3656,6 +3656,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              reset_index=True,
              method='midpoint',
              solver=None,
+             solve_kw={'tee': True},  # print solver output
              solver_cmdline_options=None,
              ):
     """Run the dhnx (district heating networks) process.
@@ -3706,8 +3707,18 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         DESCRIPTION. The default is 1.
     reset_index : TYPE, optional
         DESCRIPTION. The default is True.
-     : TYPE
-        DESCRIPTION.
+    solver : str, optional
+        Name of the solver used by dhnx, e.g. 'cbc' or 'gurobi'.
+        If None, try to find an installed solver or install cbc.
+        Default is None.
+    solve_kw : dict, optional
+        Special keywords used for the solver. {'tee': True}, prints the solver
+        output to the console, while {'tee': False} hides it.
+    solver_cmdline_options : dict, optional
+        Command line options used when calling the solver. Some useful
+        examples are 'seconds', 'allowableGap' and 'ratioGap' for cbc and
+        'TimeLimit', 'MIPGapAbs' and 'MIPGap' for gurobi. Please refer to
+        the documentation of each solver for more information.
 
     Raises
     ------
@@ -3773,16 +3784,17 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Optionally export the geodataframes and load it into qgis
     # for checking the results of the geometry processing
-    if not os.path.exists(os.path.dirname(save_path)):
-        os.makedirs(os.path.dirname(save_path))
-    for filename, gdf in tn_input.items():
-        try:
-            save_geojson(gdf, file=filename, path=save_path,
-                         type_errors='coerce')
-        except Exception as e:
-            print(gdf)
-            breakpoint()
-            logger.exception(e)
+    if save_path is not None:
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.makedirs(os.path.dirname(save_path))
+        for filename, gdf in tn_input.items():
+            try:
+                save_geojson(gdf, file=filename, path=save_path,
+                             type_errors='coerce')
+            except Exception as e:
+                print(gdf)
+                breakpoint()
+                logger.exception(e)
 
     # Part III: Initialise the ThermalNetwork and perform the Optimisation
 
@@ -3813,8 +3825,11 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     if df_load_ts_slice is not None:
         if len(gdf_poly_houses) != len(df_load_ts_slice.columns):
-            raise ValueError("Buildings GeoDataFrame and time series must"
+            raise ValueError("Buildings GeoDataFrame and time series must "
                              "describe the same number of buildings")
+        if reset_index:  # Replace given ts columns with range index
+            # Assume consumers and their time series have the same order
+            df_load_ts_slice.columns = tn_input['consumers'].index
         # Enforce string column names, because dhnx expects them
         df_load_ts_slice.columns = df_load_ts_slice.columns.astype(str)
         # Add the time series slice of the thermal load to the Network
@@ -3838,11 +3853,16 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     if solver_cmdline_options is None:
         solver_cmdline_options = {}
 
+    if solver == 'gurobi':
+        # Try to remove common 'cbc' arguments from dict that would cause
+        # an error with 'gurobi'
+        solver_cmdline_options.pop('allowableGap', None)
+        solver_cmdline_options.pop('ratioGap', None)
+        solver_cmdline_options.pop('seconds', None)
+
     settings = dict(
         solver=solver,
-        solve_kw={
-            'tee': True,  # print solver output
-        },
+        solve_kw=solve_kw,
         # solver_cmdline_options={  # cbc
         #     # 'allowableGap': 1e-5,  # (absolute gap) default: 1e-10
         #     'ratioGap': 0.01,  # (0.2 = 20% gap) default: 0
@@ -3863,7 +3883,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     if df_load_ts_slice is not None:
         settings["heat_demand"] = "series"
         settings["num_ts"] = len(df_load_ts_slice)
-        settings["frequence"] = pd.infer_freq(df_load_ts_slice.index)
+        settings["frequence"] = 'h'  # default value
 
     # perform the investment optimisation
     try:
