@@ -3147,6 +3147,25 @@ def sort_from_north_to_south(gdf, col_id=None, set_index=False):
     return gdf
 
 
+def check_duplicate_geometries(gdf, drop=True, keep='first', show_plot=False):
+    """Test the input GeoDataFrame for duplicate geometries and plot them."""
+    geom_col = gdf.geometry.name
+    idx = gdf.duplicated(subset=geom_col)
+    if idx.any():
+        if show_plot:
+            fig, ax = plt.subplots(dpi=400)
+            gdf.loc[~idx].plot(ax=ax, color='green')
+            gdf.loc[idx].plot(ax=ax, color='red')
+            plt.title("Red are duplicate geometries. Please fix!")
+            plt.show()
+
+        if drop:
+            logger.info("Dropping %s duplicate geometries",
+                        idx.value_counts()[True])
+            gdf = gdf.drop_duplicates(subset="geometry", keep=keep)
+    return gdf
+
+
 def clean_3d_geometry(gdf):
     """Attempt to make 3D geometry valid (experimental)."""
     from shapely.validation import explain_validity, make_valid
