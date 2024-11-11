@@ -2,8 +2,8 @@ DHNx Addons
 ===========
 
 This package contains a collection of functions useful for workflows with
-DHNx, LPagg, and GIS-data in general in the context of municipal heat
-planning.
+[DHNx](https://github.com/oemof/DHNx), [LPagg](https://github.com/jnettels/lpagg),
+and GIS-data in general in the context of municipal heat planning.
 
 Some functions of the script are specific to Germany.
 
