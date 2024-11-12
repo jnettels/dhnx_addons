@@ -1400,7 +1400,7 @@ def assign_construction_classification_from_arge(
     # building by matching type and year with the source data
     df_probabilities = (pd.merge(
         gdf[[col_building_type, col_construction_year]],
-        df,
+        df.reset_index(),
         how='left',
         on=[col_building_type, col_construction_year])
         .set_index(gdf.index)  # Keep index so we can drop NaN
