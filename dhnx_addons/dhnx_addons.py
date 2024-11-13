@@ -552,7 +552,7 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
         if gdf.crs is not None and gdf.crs != crs:
             gdf.to_crs(crs=crs, inplace=True)
 
-        gdf.to_file(filepath, driver=driver, crs=crs, **kwargs)
+        gdf.to_file(filepath, driver=driver, **kwargs)
     except PermissionError:
         try:
             input("Please close QGIS to allow saving the file '{}.geojon'. "
