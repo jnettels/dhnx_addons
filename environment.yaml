@@ -2,7 +2,13 @@
 # conda init powershell
 
 # This file may be used to create an environment using:
-# conda env create --file environment.yaml
+# conda env create --file=environment.yaml
+
+# A different name can be selected for the new environment:
+# conda env create --name=work_new --file=environment.yaml
+
+# An existing environment can be updated:
+# conda env update --name=work_old --file=environment.yaml
 
 # Keep pip installations to a minimum, and install
 # dependencies with conda instead. To test, use:
@@ -27,10 +33,10 @@ channels:
     - jnettels
     - conda-forge
 dependencies:
-    # - python=3.10
+    - python
     - pip
     - pandas
-    - numpy
+    - numpy <2.0  # required by oemof.solph
     - numba
     - geopandas
     - matplotlib
@@ -69,22 +75,4 @@ dependencies:
         - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
         - oemof.solph
         - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
-        - pandapipes  # building wheels fails sometimes
-
-
-# run manual pip installations afterwards
-# check with dry run first, to install missing packages with conda
-# pip install oemof.network oemof.solph oemof.tools --dry-run
-
-# for dhnx, you can manually download the latest
-# version from the 'dev' branch of https://github.com/oemof/DHNx
-# and run
-# pip install -e <path to DHNx>
-# or
-# conda develop <path to DHNx>
-#
-# As of May 2023, it should be save to install dhnx 0.0.3 directly
-# pip install dhnx==0.0.3 --dry-run
-
-# Pandapipes needs to be installed from pip
-# pip install pandapipes --dry-run
+        - pandapipes
