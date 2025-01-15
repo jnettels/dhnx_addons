@@ -4831,7 +4831,7 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     settings.setdefault('print_P_max', False)
     settings.setdefault('print_GLF_stats', True)
     # Language used for certain plots ('de', or 'en')
-    settings.setdefault('language', 'de')
+    settings.setdefault('language', 'en')
 
     cfg = dict(settings=settings,
                houses=houses_dict)
