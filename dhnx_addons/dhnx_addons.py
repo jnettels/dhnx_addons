@@ -3055,6 +3055,9 @@ def plot_hexgrid(
         plot_basemap=False,
         ):
     """Plot the result from create_hexgrid()."""
+    if not show_plot:
+        return
+
     fig, ax = plt.subplots(figsize=figsize)
 
     gdf_hex_plot = gdf_hex.copy()
