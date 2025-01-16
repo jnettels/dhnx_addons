@@ -61,7 +61,7 @@ dependencies:
 
     # dhnx/oemof dependencies:
     - PyUtilib
-    - Pyomo
+    - Pyomo >=6.8.0
     - addict
     - blinker
     - dill
