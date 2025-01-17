@@ -367,7 +367,7 @@ def workflow_example_openstreetmap(
         # col_p_th='p_th_guess_kW',
         # col_p_th='P_heat_max',
         # simultaneity=0.8,
-        reset_index=False,
+        # reset_index=False,
         method='boundary',
         solver=None,
         solver_cmdline_options={  # gurobi
