@@ -3375,6 +3375,34 @@ def clean_3d_geometry(gdf):
     return gdf
 
 
+def add_z_height_to_polygons(gdf, z=0):
+    """Set (or overwrite) the z (height) component of each polygon.
+
+    This creates a "2.5D" (Multi-) Polygon Z. It is still a flat object at a
+    constant height.
+
+    z (float / list / str) :
+        A single float value, a list of values (must be the same length)
+        as gdf, or the name of a column in gdf.
+    """
+    if isinstance(z, list):
+        z_values = z
+    elif isinstance(z, str):
+        z_values = gdf[z]
+    else:
+        z_values = [z] * len(gdf)
+
+    def add_z(geom, z_new):
+        def _add_z(x, y, z_old=None):
+            return x, y, [z_new for _ in x]
+        return shapely.ops.transform(_add_z, geom)
+
+    gdf[gdf.geometry.name] = [add_z(geometry, z)
+                              for geometry, z in zip(gdf.geometry, z_values)]
+
+    return gdf
+
+
 def add_height_from_3d_geometries(gdf, gdf_3d, columns):
     """Add height information from 3D-Model to 2D building GeoDataFrame.
 
