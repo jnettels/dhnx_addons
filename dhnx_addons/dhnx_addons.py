@@ -329,18 +329,21 @@ def workflow_example_openstreetmap(
         print_file='load.dat',
         # intervall='15 minutes',
         show_plot=show_plot,
+        save_plot_filetypes=['svg'],
         print_columns=['HOUR', 'E_th_RH_HH', 'E_th_TWE_HH', 'E_el_HH',
                        'E_th_RH_GHD', 'E_th_TWE_GHD', 'E_el_GHD'],
         house_type_replacements={
             'SFH': 'EFH',
             'MFH': 'MFH',
-            'business': 'G1G',
-            'other-heated-non-residential': 'G1G',
+            'business': 'GHD/G1G',
+            'other-heated-non-residential': 'GHD/G1G',
         },
         use_demandlib="auto",
         # use_demandlib=False,
         # print_houses_xlsx=True,  # Print individual profiles for each house
+        # print_GLF_stats=True,  # Print time shift distribution
         # log_level='debug',
+        # unique_profile_workflow=False,
         )
     save_path = './result_dhnx'
 
@@ -4787,15 +4790,24 @@ def find_TRY_regions(gdf, show_plot=False, buffer=2000, col_try='try_code'):
     import lpagg.misc
 
     # Find the TRY-region for each building
-    # gdf_TRY = lpagg.misc.get_TRY_polygons_GeoDataFrame(col_try)
-    gdf_TRY = lpagg.misc.get_TRY_polygons_GeoDataFrame()  # TODO lpagg=v0.15.3
-    gdf_TRY.rename(columns={'TRY_code': col_try}, inplace=True)
+    gdf_TRY = lpagg.misc.get_TRY_polygons_GeoDataFrame(col_try)
 
     gdf = tobler.area_weighted.area_join(
         gdf_TRY.to_crs(gdf.crs), gdf, [col_try])
 
     if len(gdf[col_try].unique()) > 1:
         logger.info("Buildings are located in multiple TRY-regions.")
+
+    if gdf[col_try].isna().any():
+        logger.warning("Some buildings are not located in any TRY-region.")
+        plot_geometries(
+            gdf.fillna({col_try: 'TRY Missing'}),
+            plt_kwargs=[
+                dict(column=col_try, legend=True),
+                ],
+            title='TRY Regions',
+            # plot_basemap=True,
+            set_axis_off=True)
 
     if show_plot:
         fig, ax = plt.subplots(figsize=(20, 10), dpi=300)
@@ -4941,6 +4953,8 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     settings.setdefault('print_index', False)
     # Display a plot of the energy demand types on screen when finished
     settings.setdefault('show_plot', show_plot)
+    # Save plots if defined. Available: ['png', 'svg', 'pdf']
+    settings.setdefault('save_plot_filetypes', ['svg'])
     # Time step used for interpolation, e.g. '15 minutes' or '1 hours'
     settings.setdefault('intervall', '1 hours')
     # Start and end date & time for interpolation
@@ -4962,14 +4976,17 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     settings.setdefault('flatten_daily_TWE', False)
     # Activate the debugging flag to display more info in the terminal
     settings.setdefault('log_level', 'info')
-    # Print *_houses.xlsx file (in addition to .dat, which is always saved).
+    # Print *_houses.dat / *_houses.xlsx file.
     # Be careful, can create large file sizes that take long to save!
+    settings.setdefault('print_houses_dat', False)
     settings.setdefault('print_houses_xlsx', False)
+    # Calculate peak power
+    settings.setdefault('calc_P_max', True)  # needed for dhnx_addons
     # Print peak thermal power to separate file
     settings.setdefault('print_P_max', False)
     settings.setdefault('print_GLF_stats', True)
     # Language used for certain plots ('de', or 'en')
-    settings.setdefault('language', 'de')
+    settings.setdefault('language', 'en')
 
     cfg = dict(settings=settings,
                houses=houses_dict)
@@ -5006,6 +5023,8 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
 
     """
     import lpagg.agg
+    import lpagg.misc
+    lpagg.misc.setup()
 
     if cfg_kwargs.get('use_demandlib', False) == 'auto':
         try:  # if import is successfull, use demandlib

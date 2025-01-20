@@ -49,7 +49,7 @@ requirements:
         - owslib
         
         # From channel jnettels
-        - lpagg
+        - lpagg >= 0.18.0
         
         # dhnx/oemof dependencies:
         - PyUtilib

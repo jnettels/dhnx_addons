@@ -57,7 +57,7 @@ dependencies:
     - joblib
     
     # From channel jnettels
-    - lpagg
+    - lpagg >= 0.18.1
 
     # dhnx/oemof dependencies:
     - PyUtilib
