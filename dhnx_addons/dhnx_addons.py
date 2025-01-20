@@ -2817,7 +2817,9 @@ def merge_touching_buildings_in_parcels_slow(buildings, col_heated='heated'):
 
 def merge_touching_buildings_in_parcels(
         buildings, parcel_text='LAGEBEZTXT', sort_columns=[],
-        parcel_text_alt=None, address_empty="", mask_skip=None):
+        parcel_text_alt=None, address_empty="", mask_skip=None,
+        predicate='intersects', silence_warnings=True,
+        **kwargs_contiguity):
     """Merge all buildings that touch, but only if they share a parcel.
 
     All buildings must have a column 'parcel_text' defined. They share a
@@ -2845,6 +2847,19 @@ def merge_touching_buildings_in_parcels(
             An index mask as e.g. returned by ``buildings['HEATED'] == False``.
             Where this mask is True, the objects are not merged with their
             neighbours. This allows to skip specific buildings.
+
+        predicate (string):
+            The predicate to use for determination of neighbors.
+            Options: 'intersects', 'within', 'contains', 'overlaps',
+            'crosses', 'touches'. Default is ‘intersects’.
+            (See libpysal.weights.fuzzy_contiguity())
+
+        silence_warnings (boolean):
+            Silence libpysal warnings. Default is True.
+
+        kwargs_contiguity:
+            Keyword arguments passed to libpysal.weights.fuzzy_contiguity()
+
 
     Returns:
         buildings (gdf): GeoDataFrame with merged buildings
@@ -2879,19 +2894,26 @@ def merge_touching_buildings_in_parcels(
     # polygon with the largest area, which is also heated.
     # To achieve that, we sort the buildings now, and use the aggfunc 'first'
     # when calling dissolve()
-    buildings = buildings.sort_values(
-        by=[parcel_text] + sort_columns + ['area'], ascending=False)
+    buildings = (
+        buildings
+        .sort_values(by=[parcel_text]+sort_columns+['area'], ascending=False)
+        .reset_index(drop=True))
 
     # Use libpysal magic
     # 1: Create "weights" from the buildings with the same parcel text
     regimes = buildings[parcel_text_tmp]
-    w_block = libpysal.weights.block_weights(regimes, silence_warnings=True)
-    # 2: Create "weights" from buildings that touch each other
-    w_queen = libpysal.weights.Queen.from_dataframe(buildings,
-                                                    silence_warnings=True)
+    w_block = libpysal.weights.block_weights(
+        regimes, silence_warnings=silence_warnings)
+    # 2a: Create "weights" from buildings that touch each other
+    # w_contiguity = libpysal.weights.Queen.from_dataframe(
+    #     buildings, use_index=False, silence_warnings=silence_warnings)
+    # 2b: Create "weights" from buildings that intersect
+    w_contiguity = libpysal.weights.fuzzy_contiguity(
+        buildings, predicate=predicate, silence_warnings=silence_warnings,
+        **kwargs_contiguity)
     # 3: Get the intersetions of all buildings that touch in the same parcel
-    weights = libpysal.weights.w_intersection(w_queen, w_block,
-                                              silence_warnings=True)
+    weights = libpysal.weights.w_intersection(
+        w_contiguity, w_block, silence_warnings=silence_warnings)
 
     # Merge those selected buildings
     buildings_merged = buildings.dissolve(by=weights.component_labels,
@@ -2900,11 +2922,7 @@ def merge_touching_buildings_in_parcels(
                                           as_index=True)
 
     # Drop unused columns:
-    buildings_merged.drop('area', axis='columns', inplace=True)
-    buildings_merged.drop(parcel_text_tmp, axis='columns', inplace=True)
-
-    # buildings.set_index('OID').groupby(by='LAGEBEZTXT_parcel').groups
-    # buildings.set_index('OID').groupby(by='LAGEBEZTXT_parcel').sum()
+    buildings_merged.drop(columns=[parcel_text_tmp, 'area'], inplace=True)
     return buildings_merged
 
 
