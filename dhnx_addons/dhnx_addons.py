@@ -172,6 +172,7 @@ if parse(shapely.__version__) >= parse("2.0"):
 
 import pandas as pd
 import geopandas as gpd
+import matplotlib
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
@@ -389,10 +390,10 @@ def workflow_example_openstreetmap(
     # the time of overall maximum thermal power demand in df_load_ts_slice
     # or the maximum thermal power multiplied with a simultaneity factor
     # as an input for the thermal power of each consumer
-    pandapipes_run(
+    p_pipes, p_forks, p_consumers, p_producers = pandapipes_run(
         network, gdf_pipes, df_DN, show_plot=show_plot,
-        P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.max(axis=1).idxmax()],
-        # P_th_kW=network.components['consumers']['P_heat_max']*0.5,
+        # P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.sum(axis=1).idxmax()],
+        P_th_kW=network.components['consumers']['P_heat_max']*0.5,
         )
 
     # Download the elevation data for the current area
@@ -4624,7 +4625,13 @@ def calc_pipes_p_max(df):
 def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                    save_path='result_pandapipes',
                    P_th_kW=None,
-                   f_length_loss=2):
+                   f_length_loss=2,
+                   pressure_net=12,  # [bar] (Pressure at the heat supply)
+                   pressure_pn=20,  # [bar] The nominal pressure (used as initial value)
+                   elevation_col=None,
+                   direction='forward',
+                   **kwargs,
+                   ):
     r"""Run pandapipes simulation with result network from dhnx.
 
     While DHNx uses a thermal transmittance (U-value) in unit W/mK for
@@ -4662,8 +4669,6 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     from CoolProp.CoolProp import PropsSI
 
     # Define the pandapipes parameters
-    pressure_net = 12  # [bar] (Pressure at the heat supply)
-    pressure_pn = 20  # [bar] The nominal pressure (used as initial value)
     p = pressure_net * 100000  # pressure in [Pa]
 
     if df_DN is None:  # Use some default values
@@ -4685,10 +4690,23 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     d = PropsSI('D', 'T', feed_temp, 'P', p, 'IF97::Water')  # [kg/m³]
 
     # Prepare the component tables of the DHNx network
-    forks = network.components['forks']
-    consumers = network.components['consumers']
-    producers = network.components['producers']
+    forks = network.components['forks'].copy()
+    consumers = network.components['consumers'].copy()
+    producers = network.components['producers'].copy()
     pipes = gdf_pipes.copy()
+
+    # elevation_col can be used to indicate which column contains elevation
+    # data (height in meters). If it does not exist, assign 0m to all data.
+    if elevation_col is None:
+        elevation_col = 'height_m'
+        forks[elevation_col] = 0
+        consumers[elevation_col] = 0
+        producers[elevation_col] = 0
+    else:  # Perform test for missing values
+        for df_test in [forks, consumers, producers]:
+            if df_test[elevation_col].isna().any():
+                logger.error("Height information from column '%s' has "
+                             "missing values", elevation_col)
 
     # prepare the consumers dataframe
     # calculate massflow for each consumer and producer
@@ -4706,7 +4724,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                        "Instead, please provide the name of a column that "
                        "contains the thermal power including the "
                        "simultaneity, or a list of those values with the "
-                       "argument 'P_th_kW.")
+                       "argument 'P_th_kW'.")
     if isinstance(P_th_kW, str):
         if P_th_kW in consumers.columns:
             P_th_kW = consumers[P_th_kW]
@@ -4761,51 +4779,87 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     for index, fork in forks.iterrows():
         pp.create_junction(
             pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
-            name=fork['id_full']
+            name=fork['id_full'],
+            height_m=fork[elevation_col],
         )
 
     for index, consumer in consumers.iterrows():
         pp.create_junction(
             pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
-            name=consumer['id_full']
+            name=consumer['id_full'],
+            height_m=consumer[elevation_col],
         )
 
     for index, producer in producers.iterrows():
         pp.create_junction(
             pp_net, pn_bar=pressure_pn, tfluid_k=feed_temp,
-            name=producer['id_full']
-        )
-
-    # create sink for consumers
-    for index, consumer in consumers.iterrows():
-        pp.create_sink(
-            pp_net,
-            junction=pp_net.junction.index[
-                pp_net.junction['name'] == consumer['id_full']][0],
-            mdot_kg_per_s=consumer['massflow'],
-            name=consumer['id_full']
-        )
-
-    # create source for producers
-    for index, producer in producers.iterrows():
-        pp.create_source(
-            pp_net,
-            junction=pp_net.junction.index[
-                pp_net.junction['name'] == producer['id_full']][0],
-            mdot_kg_per_s=consumers['massflow'].sum(),
-            name=producer['id_full']
-        )
-
-    # EXTERNAL GRID as slip (Schlupf)
-    for index, producer in producers.iterrows():
-        pp.create_ext_grid(
-            pp_net,
-            junction=pp_net.junction.index[
-                pp_net.junction['name'] == producer['id_full']][0],
-            p_bar=pressure_net,
-            t_k=feed_temp,
             name=producer['id_full'],
+            height_m=producer[elevation_col],
         )
+
+    if direction == 'forward':
+        # create sink for consumers
+        for index, consumer in consumers.iterrows():
+            pp.create_sink(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == consumer['id_full']][0],
+                mdot_kg_per_s=consumer['massflow'],
+                name=consumer['id_full']
+            )
+
+        # create source for producers
+        for index, producer in producers.iterrows():
+            pp.create_source(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == producer['id_full']][0],
+                mdot_kg_per_s=consumers['massflow'].sum(),
+                name=producer['id_full']
+            )
+
+        # EXTERNAL GRID as slip (Schlupf)
+        for index, producer in producers.iterrows():
+            pp.create_ext_grid(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == producer['id_full']][0],
+                p_bar=pressure_net,
+                t_k=feed_temp,
+                name=producer['id_full'],
+            )
+
+    elif direction == 'return':
+        # create source for consumers
+        for index, consumer in consumers.iterrows():
+            pp.create_source(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == consumer['id_full']][0],
+                mdot_kg_per_s=consumer['massflow'],
+                name=consumer['id_full']
+            )
+
+        # create sink for producers
+        for index, producer in producers.iterrows():
+            pp.create_sink(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == producer['id_full']][0],
+                mdot_kg_per_s=consumers['massflow'].sum(),
+                name=producer['id_full']
+            )
+
+        # EXTERNAL GRID as slip (Schlupf)
+        for index, consumer in consumers.iterrows():
+            pp.create_ext_grid(
+                pp_net,
+                junction=pp_net.junction.index[
+                    pp_net.junction['name'] == consumer['id_full']][0],
+                p_bar=pressure_net,
+                t_k=feed_temp,
+                name=consumer['id_full'],
+            )
 
     # create pipes
     # TODO translate to create_pipes_from_parameters()
@@ -4824,12 +4878,18 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             name=pipe[idx_name],
         )
 
+    # Set default options for pandapipes simulation
+    kwargs.setdefault('iter', 10)
+    kwargs.setdefault('tol_p', 1e-4)
+    kwargs.setdefault('tol_v', 1e-4)
+    kwargs.setdefault('stop_condition', "tol")
+    kwargs.setdefault('friction_model', "colebrook")
+    kwargs.setdefault('nonlinear_method', "automatic")
+    kwargs.setdefault('mode', "all")
+    kwargs.setdefault('transient', False)
+
     # Execute the pandapipes simulation
-    pp.pipeflow(
-        pp_net, stop_condition="tol", iter=10, friction_model="colebrook",
-        mode="all", transient=False, nonlinear_method="automatic", tol_p=1e-4,
-        tol_v=1e-4,
-    )
+    pp.pipeflow(pp_net, **kwargs)
 
     # print(pp_net.res_junction.head(n=8))
     # print(pp_net.res_pipe.head(n=8))
@@ -4861,46 +4921,194 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     # Convert Kelvin to degrees Celsius temperature columns
     pipes['t_from_°C'] = pipes['t_from_k'] - 273.15
     pipes['t_to_°C'] = pipes['t_to_k'] - 273.15
+    pp_net.res_junction['t_°C'] = pp_net.res_junction['t_k'] - 273.15
+
+    junctions = pd.merge(
+        pp_net.res_junction, pp_net.junction, left_index=True,
+        right_index=True, how='left'
+        ).set_index(pp_net.res_junction.index)
+    forks = pd.merge(
+        forks, junctions, left_on='id_full', right_on='name',
+        how='left'
+        ).set_index(forks.index)
+    consumers = pd.merge(
+        consumers, junctions, left_on='id_full', right_on='name',
+        how='left', suffixes=('', '_pp')
+        ).set_index(consumers.index)
+    producers = pd.merge(
+        producers, junctions, left_on='id_full', right_on='name',
+        how='left', suffixes=('', '_pp')
+        ).set_index(producers.index)
 
     if save_path is not None:
         # export the GeoDataFrames with the simulation results to .geojson
-        save_geojson(pipes, 'pandapipes_result', path=save_path)
+        save_geojson(pipes, 'pandapipes_pipes', path=save_path)
+        save_geojson(forks, 'pandapipes_forks', path=save_path)
+        save_geojson(consumers, 'pandapipes_consumers', path=save_path)
+        save_geojson(producers, 'pandapipes_producers', path=save_path)
+
+    # Determine the low pressure and low temperature points ("Schlechtpunkt")
+    forks_p_min = forks.loc[[forks['p_bar'].idxmin()]]
+    forks_t_min = forks.loc[[forks['t_°C'].idxmin()]]
 
     # Plot the results of pandapipes simulation
     if show_plot:
         # Plot pressure of pipes' ending nodes
         plot_geometries(
-            [network.components['consumers'],
-             network.components['producers'],
-             pipes],
-            plt_kwargs=[dict(label='Consumer'),
-                        dict(label='Producer'),
+            [consumers,
+             producers,
+             pipes,
+             forks_p_min],
+            plt_kwargs=[dict(label='Consumer', color='green'),
+                        dict(label='Producer',
+                             color=matplotlib.colormaps['cividis'](1.0)),
                         dict(column='p_to_bar', linewidth=2, legend=True,
                              label='Pipelines',
                              cmap='cividis',
-                             legend_kwds={'label': 'Pressure [bar]'})],
+                             legend_kwds={'label': 'Pressure [bar]'}),
+                        dict(label='Minimum pressure',
+                             color=matplotlib.colormaps['cividis'](0.0)),
+                        ],
             # plot_basemap=True,
             title='Pressure distribution',
             set_axis_off=True,
-            dpi=300)
+            dpi=300,
+            # save_path=os.path.join(save_path, 'plots', 'Pressure'),
+            )
 
         # Plot temperature of pipes' ending nodes
         plot_geometries(
-            [network.components['consumers'],
-             network.components['producers'],
-             pipes],
-            plt_kwargs=[dict(label='Consumer'),
-                        dict(label='Producer'),
+            [consumers,
+             producers,
+             pipes,
+             forks_t_min],
+            plt_kwargs=[dict(label='Consumer', color='black'),
+                        dict(label='Producer',
+                             color=matplotlib.colormaps['Wistia'](1.0)),
                         dict(column='t_to_°C', linewidth=2, legend=True,
                              label='Pipelines',
                              cmap='Wistia',
-                             legend_kwds={'label': 'Temperature [°C]'})],
+                             legend_kwds={'label': 'Temperature [°C]'}),
+                        dict(label='Minimum temperature',
+                             color=matplotlib.colormaps['Wistia'](0.0)),
+                        ],
             # plot_basemap=True,
             title='Temperature distribution',
             set_axis_off=True,
             dpi=300)
 
-    return pipes
+        # Plot volume flow rate per pipe segment
+        pipes['vdot_norm_m3_per_s_abs'] = pipes['vdot_norm_m3_per_s'].abs()
+        pipes['vdot_norm_m3_per_h_abs'] = pipes['vdot_norm_m3_per_s_abs']*3600
+        plot_geometries(
+            [consumers,
+             producers,
+             pipes],
+            plt_kwargs=[dict(label='Consumer', color='black'),
+                        dict(label='Producer',
+                             color=matplotlib.colormaps['Wistia'](1.0)),
+                        dict(column='vdot_norm_m3_per_h_abs', linewidth=2,
+                             legend=True, label='Pipelines', cmap='Wistia',
+                             legend_kwds={'label': 'Flow rate [m³/h]'})
+                        ],
+            # plot_basemap=True,
+            title='Flow rate distribution',
+            set_axis_off=True,
+            dpi=300)
+
+        # Plot volume flow velocity per pipe segment
+        pipes['v_mean_m_per_s_abs'] = pipes['v_mean_m_per_s'].abs()
+        plot_geometries(
+            [consumers,
+             producers,
+             pipes],
+            plt_kwargs=[dict(label='Consumer', color='black'),
+                        dict(label='Producer',
+                             color=matplotlib.colormaps['Wistia'](1.0)),
+                        dict(column='v_mean_m_per_s_abs', linewidth=2,
+                             legend=True, label='Pipelines', cmap='Wistia',
+                             legend_kwds={'label': 'Velocity [m/s]'})
+                        ],
+            # plot_basemap=True,
+            title='Velocity distribution',
+            set_axis_off=True,
+            dpi=300)
+
+        # Find and plot pressure along shorest path from start to point with
+        # lowest pressure
+        gdf_shortest = find_shortest_path(pipes, producers, forks_p_min)
+
+        plot_geometries(
+                [pipes, producers, forks_p_min, gdf_shortest],
+                plt_kwargs=[
+                    dict(label='Pipelines', linewidth=0.5, color='red'),
+                    dict(label='Producer',
+                         color=matplotlib.colormaps['viridis'](1.0)),
+                    dict(label='Minimum pressure',
+                         color=matplotlib.colormaps['viridis'](0.0)),
+                    dict(column='p_to_bar', legend=True, cmap='viridis',
+                         legend_kwds=dict(label='Pressure [bar]')),],
+                title='Pressure distribution to point of minimum pressure',
+                set_axis_off=True,
+                )
+
+    return pipes, forks, consumers, producers
+
+
+def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
+                       show_plot=False):
+    """Find shortest path from point_start to point_end in line network gdf."""
+    import networkx as nx
+    import momepy
+
+    gdf['length'] = gdf.length
+    G = momepy.gdf_to_nx(gdf, approach="primal")
+    # nx.draw(G, {n: [n[0], n[1]] for n in list(G.nodes)}, node_size=1)
+
+    # Extract coordinates from point_start and point_end GeoDataFrames
+    start = list(point_start.geometry.centroid.iloc[0].coords)[0]
+    end = list(point_end.geometry.centroid.iloc[0].coords)[0]
+
+    # Compute the shortest path
+    shortest_path_nodes = nx.shortest_path(G, source=start, target=end,
+                                           weight='length')
+
+    G_s = nx.subgraph(G, shortest_path_nodes)
+    # nx.draw(G_s, {n: [n[0], n[1]] for n in list(G_s.nodes)}, node_size=1)
+
+    # Compute the distance from the start to each node in the shortest path
+    cumulative_distances = {node: nx.shortest_path_length(
+        G, source=start, target=node, weight='length')
+        for node in shortest_path_nodes}
+
+    nx.set_node_attributes(G_s, values=cumulative_distances, name=distance_col)
+
+    nodes_gdf, edges_gdf = momepy.nx_to_gdf(G_s)
+    gdf_s = pd.merge(edges_gdf, nodes_gdf[['nodeID', distance_col]],
+                     left_on='node_start', right_on='nodeID', how='left')
+    gdf_s = gdf_s.sort_values(distance_col).reset_index()
+
+    if show_plot:
+        plot_geometries(
+            [gdf, point_start, point_end, gdf_s],
+            plt_kwargs=[
+                dict(label='Network', color='red'),
+                dict(label='Start'),
+                dict(label='End'),
+                dict(column=distance_col, legend=True,
+                     legend_kwds=dict(label='Cumulative distance [m]')),],
+            )
+
+    # Test if the total length of the shortest path is all within gdf
+    # equal_distances = np.isclose(
+    #     gdf[gdf.within(gdf_s.geometry.union_all())].length.sum(),
+    #     gdf_s['distance'].max(),
+    #     atol=1)
+
+    # if not equal_distances:
+    #     logger.warning("There might be a problem with the shortest path")
+
+    return gdf_s
 
 
 # Section "lpagg" (load profile aggregator)
