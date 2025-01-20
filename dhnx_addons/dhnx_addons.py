@@ -9,7 +9,7 @@ See the readme.md in the repository for general information.
 Special dependencies
 --------------------
 
-See requirements.txt or environment.yaml in the repository.
+See or environment.yaml in the repository.
 
 
 Useful resources
@@ -274,15 +274,33 @@ def setup(log_level='INFO'):
     warnings.filterwarnings(action='ignore', category=UserWarning,
                             module='Memory')
 
+    # Silencing specific FutureWarning by message content
+    warnings.filterwarnings(
+        action="ignore", module='oemof.solph',
+        message=("For backward compatibility, the option investment "
+                 "overwrites the option nominal_value. Both options cannot "
+                 "be set at the same time."), category=FutureWarning)
+    warnings.filterwarnings(
+        action="ignore", module='oemof.network',
+        message=("Usage of oemof.network.Component is deprecated. "
+                 "Use oemof.network.Node instead."), category=FutureWarning)
+
 
 def workflow_example_openstreetmap(
         gdf_area=None,
         gdf_prod=None,
         gdf_streets=None,
-        show_plot=True):
+        show_plot=True,
+        crs_default='EPSG:25832',
+        ):
     """Run an example workflow from OpenStreetMap data."""
     if gdf_area is None:
         gdf_area = load_example_area()
+
+    # Make sure GeoDataFrames are in a projected coordinate system
+    for gdf in [gdf_area, gdf_prod, gdf_streets]:
+        if gdf is not None:
+            gdf.to_crs(crs_default, inplace=True)
 
     gdf_houses = download_buildings_from_osm(
         gdf_area,
@@ -353,10 +371,54 @@ def workflow_example_openstreetmap(
     save_geojson(gdf_prod, 'producers_polygon', path=save_path)
 
     if gdf_streets is None:
+        if not gdf_area.intersects(gdf_prod, align=False).any():
+            # If producer is outside of (building) area, use their envelope
+            # as search area for street data download
+            gdf_area = gpd.GeoSeries(
+                pd.concat([gdf_area, gdf_prod]).union_all().envelope,
+                crs=gdf_area.crs)
+
         gdf_streets = download_streets_from_osm(
             gdf_area, dropna_tresh=0.01, show_plot=show_plot)
         save_geojson(gdf_streets, 'streets_input', path=save_path,
                      type_errors='coerce')
+
+    """
+    # In cases where there are multiple producers, it is possible to simulate
+    # multiple time steps in order to optimize the network for all of them.
+    # Set the nominal heating capacity of each producer. This example
+    # would only work if gdf_prod already has two producer entries.
+    gdf_prod['heat.source.nominal_value'] = [2500, 2500]  # kW
+    # Define e.g. two time steps for each producer. In the first time step
+    # only the first producer is active and vice versa. This should result
+    # in a grid that can be heated from both producers.
+    gdf_prod['heat.source.max'] = [[1, 0.001], [0.001, 1]]
+    # A producer can also be forced to be connected by specifying minimum power
+    gdf_prod['heat.source.min'] = [[0, 0], [0, 1]]
+    # Create identical demand time steps for each time step defined above
+    df_load_ts_slice = pd.DataFrame(columns=gdf_houses.index, index=[0, 1])
+    df_load_ts_slice.loc[0] = gdf_houses['P_heat_max'].values
+    df_load_ts_slice.loc[1] = gdf_houses['P_heat_max'].values
+    # Then pass df_load_ts_slice to dhnx_run().
+
+    # The approach above is for using P_heat_max of each building.
+    # If the buildings' time series should be used, the following can help
+    n_ts = len(df_load_ts_slice)  # Store number of time steps
+    # For two producers, append 1 copy of the time series to itself
+    df_load_ts_slice = pd.concat([df_load_ts_slice, df_load_ts_slice])
+
+    # Create a producer DataFrame with the desired settings
+    gdf_prod['heat.source.nominal_value'] = [5000, 400]
+    gdf_prod['heat.source.max'] = [
+        [1]*n_ts + [1]*n_ts,  # Condition 1: source 1 | source 2
+        [0.001]*n_ts + [1]*n_ts  # Condition 2: source 1 | source 2
+        ]
+    gdf_prod['heat.source.min'] = [
+        [0]*n_ts + [0]*n_ts,
+        [0]*n_ts + [1]*n_ts
+        ]
+
+    """
 
     # dhnx_run.clear()  # Clear cached results
     network, gdf_pipes, df_pipes, df_DN = dhnx_run(
