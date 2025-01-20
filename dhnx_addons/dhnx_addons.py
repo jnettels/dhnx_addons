@@ -2683,7 +2683,7 @@ def make_geographic_selection(
     # Length of GeoDataFrame needs to be reduced to 1
     if len(gdf_selection) > 1:
         gdf_selection = gpd.GeoDataFrame(
-            geometry=[gdf_selection.unary_union],
+            geometry=[gdf_selection.union_all()],
             crs=gdf_selection.crs)
 
     # "Within" only works if both gdf share the same coordinate reference
@@ -3113,7 +3113,7 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
     if gdf_area is None:
         gdf_area = gpd.GeoDataFrame(
             geometry=[gdf_buildings
-                      .unary_union
+                      .union_all()
                       .convex_hull
                       .buffer(buffer_distance)],
             crs=gdf_buildings.crs)
@@ -3129,8 +3129,10 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
                                clip=clip)
 
     if gdf_hex.empty:
-        raise ValueError("Choose a higher resolution than {} for the hexgrid".
-                         format(resolution))
+        logger.error("Hexgrid is not available. A higher resolution than {} "
+                     "might help. Skipping hexgrid plot".
+                     format(resolution))
+        return gdf_hex
 
     gdf_hex = tobler.area_weighted.area_interpolate(
         source_df=gdf_buildings,
@@ -3167,7 +3169,7 @@ def plot_hexgrid(
         plot_basemap=False,
         ):
     """Plot the result from create_hexgrid()."""
-    if not show_plot:
+    if not show_plot or gdf_hex.empty:
         return
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -3487,7 +3489,7 @@ def download_buildings_from_osm(
     if len(gdf_polygon) > 1:
         gdf_polygon = gpd.GeoDataFrame(
             geometry=[gdf_polygon
-                      .unary_union
+                      .union_all()
                       .convex_hull],
             crs=gdf_polygon.crs)
 
@@ -3592,7 +3594,7 @@ def download_streets_from_osm(
     if len(gdf_polygon) > 1:
         gdf_polygon = gpd.GeoDataFrame(
             geometry=[gdf_polygon
-                      .unary_union
+                      .union_all()
                       .convex_hull],
             crs=gdf_polygon.crs)
     polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
@@ -3747,7 +3749,7 @@ def custom_plot_save(filename, folder='', dpi=750,
 
 def plot_heated(gdf, col_heated='heated', **fig_kwargs):
     """Plot the buildings where col_heated is True."""
-    logger.info('Plot map of column %s', col_heated)
+    logger.info("Plot map of column '%s'", col_heated)
     fig_kwargs.setdefault('figsize', (10, 10))
     fig_kwargs.setdefault('dpi', 100)
 
@@ -5168,7 +5170,7 @@ def find_country_code(gdf):
     try:
         import geopy
         geolocator = geopy.geocoders.Nominatim(user_agent='dhnx_addons')
-        point = gdf.to_crs(4326).unary_union.convex_hull.centroid
+        point = gdf.to_crs(4326).union_all().convex_hull.centroid
         location = geolocator.reverse((point.y, point.x)).raw
         country_code = location['address']['ISO3166-2-lvl4']
         country_dict = {'country': country_code[0:2],
@@ -5403,7 +5405,7 @@ def lpagg_get_max_power_slice(df_load_ts, buffer=0, show_plot=True):
 
     # Take the sum of all the thermal energies (so drop electrical)
     df_load_ts = (df_load_ts
-                  .stack(["house"])
+                  .stack(["house"], future_stack=True)
                   .drop(columns=['W_TT'], level='energy', errors='ignore')
                   .sum(axis='columns')
                   .div(freq)  # convert kWh to kW
