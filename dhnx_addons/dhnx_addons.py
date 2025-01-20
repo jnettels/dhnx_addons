@@ -4977,7 +4977,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     kwargs.setdefault('stop_condition', "tol")
     kwargs.setdefault('friction_model', "colebrook")
     kwargs.setdefault('nonlinear_method', "automatic")
-    kwargs.setdefault('mode', "all")
+    kwargs.setdefault('mode', "sequential")
     kwargs.setdefault('transient', False)
 
     # Execute the pandapipes simulation
@@ -5090,8 +5090,8 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             dpi=300)
 
         # Plot volume flow rate per pipe segment
-        pipes['vdot_norm_m3_per_s_abs'] = pipes['vdot_norm_m3_per_s'].abs()
-        pipes['vdot_norm_m3_per_h_abs'] = pipes['vdot_norm_m3_per_s_abs']*3600
+        pipes['vdot_m3_per_s_abs'] = pipes['vdot_m3_per_s'].abs()
+        pipes['vdot_m3_per_h_abs'] = pipes['vdot_m3_per_s_abs']*3600
         plot_geometries(
             [consumers,
              producers,
@@ -5099,7 +5099,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             plt_kwargs=[dict(label='Consumer', color='black'),
                         dict(label='Producer',
                              color=matplotlib.colormaps['Wistia'](1.0)),
-                        dict(column='vdot_norm_m3_per_h_abs', linewidth=2,
+                        dict(column='vdot_m3_per_h_abs', linewidth=2,
                              legend=True, label='Pipelines', cmap='Wistia',
                              legend_kwds={'label': 'Flow rate [m³/h]'})
                         ],
