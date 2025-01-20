@@ -250,8 +250,8 @@ def main():
     """Run an example main method."""
     setup()
     logger.info("Welcome to the 'DHNx Addons' example main method")
-    # workflow_example_openstreetmap(show_plot=True)
-    workflow_example_openstreetmap(show_plot=False)
+    workflow_example_openstreetmap(show_plot=True)
+    # workflow_example_openstreetmap(show_plot=False)
 
 
 def setup(log_level='INFO'):
