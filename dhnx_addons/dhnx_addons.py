@@ -3003,6 +3003,42 @@ def merge_with_test(df1, df2, on, find_closest_matches=False):
     return df, df_missing
 
 
+def snap_line_network(gdf, tolerance=0.5, tmp_length="tmp_length_calc"):
+    """Snap each line in gdf to the vertices of the remaining lines.
+
+    This is useful if the input network is not connected everywhere.
+    Shorter lines are edited first (by sorting by length).
+
+    Parameters
+    ----------
+    gdf : GeoDataFrame
+        The network of lines, e.g. streets
+    tolerance : float, optional
+        Distance tolerance for shapely.snap. The default is 0.5.
+        Unit should be [m] with the default crs.
+    tmp_length : str, optional
+        Name of a temporary column. The default is "tmp_length_calc".
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+        Network with snapped lines.
+
+    """
+
+    gdf[tmp_length] = gdf.length
+    gdf.sort_values(tmp_length, inplace=True)
+    for idx in gdf.index:
+        geom = gdf.loc[idx, gdf.geometry.name]
+        other_geoms = gdf[gdf.geometry != geom]
+        geom_snapped = shapely.ops.snap(geom, other_geoms.union_all(),
+                                        tolerance=tolerance)
+        gdf.loc[idx, gdf.geometry.name] = geom_snapped
+    gdf.sort_index(inplace=True)
+    gdf.drop(columns=[tmp_length], inplace=True)
+    return gdf
+
+
 def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
                    buffer_distance=200,
                    intensive_variables=None,
