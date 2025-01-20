@@ -3361,7 +3361,36 @@ def download_area_by_name(places, crs='EPSG:25832', show_plot=True, **kwargs):
         gdf.to_crs(crs, inplace=True)
 
     if show_plot:
-        plot_geometries(gdf, plt_kwargs=dict(alpha=0.5), plot_basemap=True)
+        plot_geometries(gdf, plt_kwargs=dict(alpha=0.5), plot_basemap=True,
+                        title=f"Detected area '{', '.join(places)}'")
+
+    return gdf
+
+
+def download_zip_code_layer(places, crs='EPSG:25832', **kwargs):
+    """Download polygon of zip codes by name of given place."""
+    # Define custom filter for OSM geometries
+    kwargs.setdefault('tags', {'boundary': 'postal_code'})
+    gdf = gdf = download_features_from_place(places, crs=crs, **kwargs)
+    return gdf
+
+
+def download_admin_level(places, level=9, crs='EPSG:25832', **kwargs):
+    """Download polygon of administration level by name of given place."""
+    # Define custom filter for OSM geometries
+    kwargs.setdefault('tags', {'admin_level': str(level)})
+    gdf = download_features_from_place(places, crs=crs, **kwargs)
+    return gdf
+
+
+def download_features_from_place(places, crs='EPSG:25832', **kwargs):
+    """Download features from a plce from OpenStreetMap with osmnx."""
+    # Use OSMnx to download the data as a GeoDataFrame
+    gdf = ox.features_from_place(places, **kwargs)
+    gdf = gdf.xs('relation', level='element_type')
+    gdf.drop(columns=['nodes', 'ways'], errors='ignore', inplace=True)
+    if crs is not None:
+        gdf.to_crs(crs, inplace=True)
 
     return gdf
 
