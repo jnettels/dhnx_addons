@@ -370,7 +370,7 @@ def workflow_example_openstreetmap(
         # col_p_th='p_th_guess_kW',
         # col_p_th='P_heat_max',
         # simultaneity=0.8,
-        reset_index=False,
+        # reset_index=False,
         method='boundary',
         solver=None,
         solver_cmdline_options={  # gurobi
@@ -3788,15 +3788,18 @@ def clean_previous_street_results(gdf):
 # @memory.cache  # Deactivated, as it sometimes causes stack overflow exception
 def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
-             path_invest_data='invest_data',
-             path_pipe_data="input/Pipe_data.csv",
+             path_invest_data=None,  # 'invest_data',
+             path_pipe_data=None,  # "input/Pipe_data.csv",
              pipe_data_sheet_name=0,
              df_load_ts_slice=None,
              col_p_th='P_heat_max',
              bidirectional_pipes=False,
              simultaneity=1,
              reset_index=True,
+             n_conn=1,
+             n_conn_prod=1,
              method='midpoint',
+             welding=True,
              solver=None,
              solve_kw={'tee': True},  # print solver output
              solver_cmdline_options=None,
@@ -3813,23 +3816,26 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     Parameters
     ----------
-    gdf_lines_streets : TYPE
-        DESCRIPTION.
-    gdf_poly_gen : TYPE
-        DESCRIPTION.
-    gdf_poly_houses : TYPE
-        DESCRIPTION.
-    save_path : TYPE, optional
-        DESCRIPTION. The default is './out'.
-    show_plot : TYPE, optional
-        DESCRIPTION. The default is True.
+    gdf_lines_streets : GeoDataFrame
+        A line network (typically streets) used as potential paths for
+        district heating grid.
+    gdf_poly_gen : GeoDataFrame
+        Polygon layer of one or multiple generator buildings which supply
+        the heat for the district heating grid.
+    gdf_poly_houses : GeoDataFrame
+        Polygon layer of the houses/buildings that should be connected
+        to the district heating grid.
+    save_path : str, optional
+        Path where result files are saved. The default is './out'.
+    show_plot : boolean, optional
+        If True, show plots generated during runtime. The default is True.
     path_invest_data : str, optional
         Path to folder with special dhnx input (consumer and producer files).
-        The default is 'invest_data'.
+        If None, all default settings are used. The default is None.
     path_pipe_data : str, optional
         Path to a .csv or .xlsx file with input data for district heating
-        pipes (U-value, cost, etc. per norm diameter DN). The default is
-        'input/Pipe_data.csv'.
+        pipes (U-value, cost, etc. per norm diameter DN). If None, a
+        default dataset for steel pipes is used. The default is None.
     pipe_data_sheet_name : str, optional
         Name of the sheet to use if path_pipe_data points to an .xlsx file
         with input data for district heating pipes. Reads the first sheet
@@ -3843,12 +3849,35 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     col_p_th : str, optional
         A column name of ``gdf_poly_houses`` containing the thermal power
         of each building. The default is 'P_heat_max'.
-    bidirectional_pipes : TYPE, optional
-        DESCRIPTION. The default is False.
-    simultaneity : TYPE, optional
-        DESCRIPTION. The default is 1.
-    reset_index : TYPE, optional
-        DESCRIPTION. The default is True.
+    bidirectional_pipes : boolean, optional
+        If False, try to prevent bidirectional pipes in DHNx.
+        The default is False.
+    simultaneity : float, optional
+        An overall simultaneity factor used by DHNx. It simply reduces
+        the thermal power defined by col_p_th, without taking any actual
+        simultaneity effects into account. Use with care. The default is 1.
+    reset_index : boolean, optional
+        DHNx requires resetting the index of the input GeoDataFrames.
+        Skipping this is currently not unsupported. The default is True.
+    n_conn : int, optional
+        Number of connection lines created from each consumer/producer to
+        the nearest line segments in the street network. This allows the
+        placement of the connection lines to be part of the optimization
+        process. The default is 1.
+    n_conn_prod : int, optional
+        Number of connection lines created from each producer to
+        the nearest line segments in the street network. This allows the
+        placement of the connection lines to be part of the optimization
+        process. The default is 1.
+    method : string, optional
+        Method for creating the point if polygons are given for the consumers
+        and producers. Method 'midpoint' uses the centroid of each building
+        polygon. Method 'boundary' moves the point to the boundary (wall) of
+        the building, along the line constructed from centroid to the street.
+    welding : bool, optional
+        Weld continuous line segments together and cut loose ends. This
+        can improve the performance of the optimization, as it decreases
+        the total number of line elements. Default is True.
     solver : str, optional
         Name of the solver used by dhnx, e.g. 'cbc' or 'gurobi'.
         If None, try to find an installed solver or install cbc.
@@ -3912,6 +3941,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         consumers=gdf_poly_houses.copy(),
         method=method,
         reset_index=reset_index,
+        n_conn=n_conn,
+        n_conn_prod=n_conn_prod,
+        welding=welding,
     )
 
     if show_plot:
@@ -3940,24 +3972,6 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Part III: Initialise the ThermalNetwork and perform the Optimisation
 
-    # Create or overwrite the input file "invest_data/network/pipes.csv"
-    if os.path.exists(path_pipe_data):
-        df_DN, constants_costs, constants_loss = (
-            calc_lineralized_pipe_input(
-                path_pipe_data=path_pipe_data,
-                pipe_data_sheet_name=pipe_data_sheet_name,
-                T_FF=80, T_RF=50, T_ground=10, dP_max=150,
-                show_plot=show_plot))
-        export_lineralized_pipe_input(df_DN, constants_costs, constants_loss)
-        if save_path is not None:
-            save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
-    else:
-        logger.info("Provide a file '%s' with pipe properties per DN for "
-                    "a custom lineralized optimization input. File not found, "
-                    "using default pipe properties instead.", path_pipe_data)
-        df_DN = get_default_df_DN(T_FF=80, T_RF=50, T_ground=10,
-                                  save_path=save_path)
-
     # initialize a ThermalNetwork
     network = dhnx.network.ThermalNetwork()
 
@@ -3981,8 +3995,29 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     # check if ThermalNetwork is consistent
     network.is_consistent()
 
+    # Create or overwrite the input file "invest_data/network/pipes.csv"
+    # Create pipe data table from manufacturer data
+    df_DN, constants_costs, constants_loss = (
+        calc_lineralized_pipe_input(
+            path_pipe_data=path_pipe_data,
+            pipe_data_sheet_name=pipe_data_sheet_name,
+            T_FF=80, T_RF=50, T_ground=10, dP_max=150,
+            show_plot=show_plot))
+    # Export the linearized form required by DHNx
+    df_invest_opt_pipes = export_lineralized_pipe_input(
+        df_DN, constants_costs, constants_loss, path_invest_data)
+    if save_path is not None:
+        save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
+
     # load the specification of the oemof-solph components
-    invest_opt = dhnx.input_output.load_invest_options(path_invest_data)
+    # For 'consumers' and 'producers', load default options
+    invest_opt = get_default_dhnx_invest_options()
+    # Add the pipes investment options
+    invest_opt['network'] = dict(pipes=df_invest_opt_pipes)
+    # If any investment options are present as a file structure, use those
+    if path_invest_data is not None and os.path.exists(path_invest_data):
+        invest_opt.update(
+            dhnx.input_output.load_invest_options(path_invest_data))
 
     # Define which solver to use. This function checks if 'gurobi' or 'cbc'
     # are installed and installs 'cbc' if necessary
@@ -4042,6 +4077,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                      "- The given producers, if limited in their capacity, "
                      "cannot provide the required capacity.")
         breakpoint()
+        # save_geopackage(network.components['forks'], 'debug_forks')
+        # save_geopackage(network.components['pipes'], 'debug_pipes')
+        # save_geopackage(gdf_lines_streets, 'debug_streets')
 
     # Part IV: Check the results #############
 
@@ -4069,32 +4107,6 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
 
     if show_plot:
-        """
-        # plot output after processing the geometry
-        _, ax = plt.subplots(figsize=(20, 10), dpi=300)
-        # network.components['consumers'].plot(ax=ax, color='green', markersize=.5)
-        # network.components['producers'].plot(ax=ax, color='red', markersize=.5)
-        # network.components['forks'].plot(ax=ax, color='grey', markersize=.5)
-        # gdf_pipes[gdf_pipes['capacity'] > 0].plot(ax=ax, color='blue',
-        #                                           linewidth=0.1)
-        gdf_plot = pd.concat([gdf_poly_gen.to_crs(gdf_poly_houses.crs),
-                              gdf_poly_houses],
-                             keys=['Producer', 'Consumer'],
-                             names=['role']
-                             ).reset_index().to_crs(gdf_pipes.crs)
-        gdf_plot.plot(ax=ax, column='role', legend=True)
-
-        gdf_pipes[gdf_pipes['DN'] > 0].plot(ax=ax, column='DN',
-                                            linewidth=2, legend=True,
-                                            legend_kwds={'label':'DN'})
-        # gdf_poly_gen.plot(ax=ax, color='orange', label='Producer')
-        # gdf_poly_houses.plot(ax=ax, color='green', label='Consumer')
-
-        # plt.legend()
-        plt.title('Invested pipelines')
-        plt.show()
-        """
-
         plot_geometries(
             [gdf_poly_houses, gdf_poly_gen, gdf_pipes[gdf_pipes['DN'] > 0]],
             plt_kwargs=[dict(label='Consumer'),
@@ -4230,10 +4242,16 @@ def calc_lineralized_pipe_input(
     # investment optimisation of the DHS piping network. Therefore, we load
     # the pipes data table. This is the information you need from your
     # manufacturer / from your project.
-    if os.path.splitext(path_pipe_data)[1] == '.xlsx':
-        df = pd.read_excel(path_pipe_data, sheet_name=pipe_data_sheet_name)
+    if path_pipe_data is not None and os.path.exists(path_pipe_data):
+        if os.path.splitext(path_pipe_data)[1] == '.xlsx':
+            df = pd.read_excel(path_pipe_data, sheet_name=pipe_data_sheet_name)
+        else:
+            df = pd.read_csv(path_pipe_data, sep=",")
     else:
-        df = pd.read_csv(path_pipe_data, sep=",")
+        logger.info("Provide a file '%s' with pipe properties per DN for "
+                    "a custom lineralized optimization input. File not found, "
+                    "using default pipe properties instead.", path_pipe_data)
+        df = get_default_df_DN(T_FF=T_FF, T_RF=T_RF, T_ground=T_ground)
 
     # This is an example of input data. The Roughness refers to the roughness of
     # the inner surface and depends on the material (steel, plastic). The U-value
@@ -4317,12 +4335,13 @@ def calc_lineralized_pipe_input(
     return df, constants_costs, constants_loss
 
 
-def export_lineralized_pipe_input(df, constants_costs, constants_loss):
-    """Create and export the pipes input settings to the expected location.
+def export_lineralized_pipe_input(df, constants_costs, constants_loss,
+                                  path_invest_data='invest_data'):
+    """Create and export the pipes investment options to the expected location.
 
     See DHNx documentation for details about these settings.
     """
-    df_pipes = pd.DataFrame({
+    df_invest_opt_pipes = pd.DataFrame({
         "label_3": "pipe-generic",
         "active": 1,
         "nonconvex": 1,
@@ -4335,36 +4354,134 @@ def export_lineralized_pipe_input(df, constants_costs, constants_loss):
         }, index=[0],
     )
 
-    # Export the optimisation parameter of the dhs pipelines to the investment
-    # data and replace the default csv file.
-    # This file will be read by DHNx and is expected at a specific location
-    filepath = "invest_data/network/pipes.csv"
-    if not os.path.exists(os.path.dirname(filepath)):
-        os.makedirs(os.path.dirname(filepath))
-    df_pipes.to_csv(filepath, index=False)
+    if path_invest_data is not None:
+        # Export the optimisation parameter of the dhs pipelines to the
+        # investment data and replace the default csv file.
+        # This file will be read by DHNx and is expected at a specific location
+        filepath = os.path.join(path_invest_data, "network/pipes.csv")
+        if not os.path.exists(os.path.dirname(filepath)):
+            os.makedirs(os.path.dirname(filepath))
+        df_invest_opt_pipes.to_csv(filepath, index=False)
+
+    return df_invest_opt_pipes
 
 
-def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path="."):
-    """If no pipes data is given, calculate default values here."""
+def get_default_dhnx_invest_options():
+    """Generate a dictionary with the default investments options for DHNx.
+
+    dhnx.input_output.load_invest_options()
+    """
+    consumers_bus = """
+label_2,active,excess,shortage,shortage costs,excess costs
+heat,1,0,0,999999,9999
+"""
+    consumers_demand = """
+label_2,active,nominal_value
+heat,1,1
+"""
+    producers_bus = """
+,label_2,active,excess,shortage,shortage costs,excess costs
+1,heat,1,0,0,9999,9999
+"""
+    producers_source = """
+label_2,active
+heat,1
+"""
+
+    invest_options = dict(
+        consumers=dict(
+            bus=pd.read_csv(io.StringIO(consumers_bus)),
+            demand=pd.read_csv(io.StringIO(consumers_demand)),
+            ),
+        producers=dict(
+            bus=pd.read_csv(io.StringIO(producers_bus)),
+            source=pd.read_csv(io.StringIO(producers_source)),
+            )
+        )
+    return invest_options
+
+
+def get_default_df_DN(T_FF=80, T_RF=50, T_ground=10, save_path=None):
+    """If no pipes data is given, calculate default values here.
+
+    Use derive_dhnx_pipe_invest_options() to update the hardcoded
+    coefficients used for U-value and costs from manufacturer data.
+    """
     df_DN = pd.DataFrame(
         {'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300,
                 350, 400, 450, 500, 600, 700, 800, 900, 1000]})
 
     df_DN['Inner diameter [m]'] = df_DN['DN']/1000
     df_DN['Max delta p [Pa/m]'] = 150
-    df_DN['Roughness [mm]'] = 0.01
+    df_DN['Roughness [mm]'] = 0.075  # 0.075 for steel, 0.01 for PEX
     df_DN['T_forward [°C]'] = T_FF  # °C forward flow
     df_DN['T_return [°C]'] = T_RF  # °C return flow
     df_DN['T_mean [°C]'] = (
         (df_DN['T_forward [°C]'] + df_DN['T_return [°C]']) / 2)
     df_DN["T_ground [°C]"] = T_ground
 
-    df_DN = calc_pipes_p_max(df_DN)
+    # Generated by derive_dhnx_pipe_invest_options() with data from the
+    # Logstor calculater http://calc.logstor.com/de/energitab/
+    # Systemtyp: Pair (not Twin-Pipes, they are only available for DN<100)
+    # Rohrsytem: Stahl Konti
+    # Serie: 2 (Isolation standard for KMR-Systems)
+    constants_costs = [1.23375521e-02, 2.33183815e+00, 1.76722278e+02]
+    constants_loss = [6.56173877e-09, -8.03009888e-06,  3.38556713e-03,
+                      1.53014666e-01]
 
-    if save_path is not None:
-        save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
+    df_DN['Costs [€/m]'] = np.polyval(constants_costs, df_DN['DN'])
+    df_DN['U-value [W/mK]'] = np.polyval(constants_loss, df_DN['DN'])
 
     return df_DN
+
+
+def derive_dhnx_pipe_invest_options(filename=None):
+    """Derive default U-value and cost values from manufacturer data.
+
+    A user should specify their own verified manufacturer data in
+    calc_lineralized_pipe_input(). In cases where that is not available,
+    some plausible default values should be used. get_default_df_DN()
+    provides such a default pipe data table.
+
+    derive_dhnx_pipe_invest_options() can be used to update the hardcoded
+    coefficients used in get_default_df_DN()
+    """
+    df = pd.read_excel(filename,
+                       # sheet_name=None,
+                       )
+
+    constants_costs = np.polyfit(df['DN'], df['Costs [€/m]'], 2)
+    constants_loss = np.polyfit(df['DN'], df['U-value [W/mK]'], 3)
+
+    DN_range = np.linspace(df['DN'].min(), df['DN'].max(), 500)
+    costs_fit = np.polyval(constants_costs, DN_range)
+    loss_fit = np.polyval(constants_loss, DN_range)
+
+    # Create subplots
+    fig, axes = plt.subplots(2, 1, figsize=(8, 10))
+
+    # Plot Costs
+    axes[0].scatter(df['DN'], df['Costs [€/m]'], color='blue', label='Data')
+    axes[0].plot(DN_range, costs_fit, color='red', label='Polynomial Fit')
+    axes[0].set_title('Costs vs DN')
+    axes[0].set_xlabel('DN')
+    axes[0].set_ylabel('Costs [€/m]')
+    axes[0].legend()
+    axes[0].grid(True)
+
+    # Plot U-value
+    axes[1].scatter(df['DN'], df['U-value [W/mK]'], color='blue', label='Data')
+    axes[1].plot(DN_range, loss_fit, color='red', label='Polynomial Fit')
+    axes[1].set_title('U-value vs DN')
+    axes[1].set_xlabel('DN')
+    axes[1].set_ylabel('U-value [W/mK]')
+    axes[1].legend()
+    axes[1].grid(True)
+
+    # Adjust layout and show plot
+    plt.tight_layout()
+    plt.show()
+
 
 
 def apply_DN(gdf_pipes, df_DN):
