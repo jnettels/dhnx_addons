@@ -2550,6 +2550,58 @@ def join_area_weighted(gdf_target, gdf_source, columns=None):
     return gdf_target
 
 
+def join_area_interpolate(gdf_target, gdf_source,
+                          intensive_variables=None,
+                          extensive_variables=None,
+                          categorical_variables=None,
+                          n_jobs=1,
+                          ):
+    """Join columns from gdf_source with gdf_target via area interpolation.
+
+    This is just a wrapper around tobler.area_weighted.area_interpolate()
+    https://pysal.org/tobler/generated/tobler.area_weighted.area_interpolate.html
+
+    It can be used to e.g. sum up the heat demands of all buildings in a
+    district and store the sum as an attribute in the district GeoDataFrame.
+    Tobler finds the buildings from gdf_source that lie within the district
+    polygons of gdf_target.
+
+    In addition to tobler, the index and columns from gdf_target are included.
+
+    Args:
+        gdf_target (gdf): Target GeoDataFrame
+
+        gdf_source (gdf): Source GeoDataFrame
+
+        intensive_variables : list, optional
+            Columns in DataFrame for intensive variables. An average is calculated.
+        extensive_variables : TYPE, optional
+            Columns in DataFrame for extensive variables. These will be summed up.
+
+    Returns:
+        gdf_target (gdf): GeoDataFrame with joined variables as new columns
+
+    """
+    logger.info('Spatial weighted area interpolation of two GeoDataFrames...')
+
+    gdf_target2 = tobler.area_weighted.area_interpolate(
+        source_df=gdf_source.to_crs(gdf_target.crs),
+        target_df=gdf_target,
+        intensive_variables=intensive_variables,
+        extensive_variables=extensive_variables,
+        categorical_variables=categorical_variables,
+        allocate_total=True,
+        n_jobs=n_jobs,
+        )
+    # Keep index name
+    gdf_target2.index.set_names(gdf_target.index.name, inplace=True)
+    # Keep columns from original gdf_target
+    gdf_target = gdf_target2.join(gdf_target.drop(
+        columns=[gdf_target.geometry.name]))
+
+    return gdf_target
+
+
 def combine_alkis_and_osm_buildings(
         gdf_alkis,
         gdf_osm,
