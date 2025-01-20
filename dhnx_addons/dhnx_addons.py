@@ -1240,7 +1240,7 @@ def building_type_from_osm(
              'civic', 'industrial', 'public', 'hotel', 'hospital', 'museum',
              'sports_hall', 'kindergarten', 'warehouse',
              'sports_centre', 'mosque', 'religious', 'brewery', 'cathedral',
-             'presbytery'
+             'presbytery', 'hostel', 'restaurant',
              ],
         'non-heated':
             ['roof', 'tower', 'hangar', 'train_station', 'bridge', 'barn',
@@ -1249,7 +1249,9 @@ def building_type_from_osm(
              'greenhouse', 'water_tower', 'grandstand', 'roof', 'stadium',
              'shed', 'service', 'carport', 'farm_auxiliary', 'construction',
              'toilets', 'bunker', 'disused', 'ruins', 'allotment_house',
-             'no', 'kiosk', 'hall', 'electricity', 'chimney',
+             'no', 'kiosk', 'hall', 'electricity', 'chimney', 'container',
+             'substation', 'lighthouse', 'ship', 'shelter', 'roof_terrace',
+             'stable',
              ],
         'unknown':
             [],
