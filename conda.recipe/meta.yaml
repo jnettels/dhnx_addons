@@ -13,7 +13,7 @@ source:
 build:
   number: {{ GIT_DESCRIBE_NUMBER }}
 
-  script: 
+  script:
         - pip install .
 
   noarch: python
@@ -24,16 +24,15 @@ requirements:
     build:
         - python
         - setuptools_scm
-
     run:
-        # dhnx_addons dependencies        
+        # dhnx_addons dependencies
         - python
         - pandas
-        - numpy <2.0  # required by oemof.solph
+        - numpy <2.0  # required by pandapower<3.0
         - numba
         - geopandas
         - matplotlib
-        - osmnx
+        - osmnx >=1.9.4
         - momepy
         - coolprop
         - fiona
@@ -47,21 +46,22 @@ requirements:
         - openpyxl
         - fuzzywuzzy
         - owslib
-        
+        - joblib
+
         # From channel jnettels
-        - lpagg >= 0.18.0
-        
+        - lpagg >=0.18.0
+
         # dhnx/oemof dependencies:
         - PyUtilib
-        - Pyomo
+        - Pyomo >=6.8.0
         - addict
         - blinker
         - dill
         - nose
-        
+
         # pandapipes dependencies
-        - deepdiff 
-        
+        - deepdiff
+
         # The following dependencies are installed via pip
         # They are listed here only for reference
         # - dhnx

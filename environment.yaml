@@ -36,11 +36,11 @@ dependencies:
     - python
     - pip
     - pandas
-    - numpy <2.0  # required by oemof.solph
+    - numpy <2.0  # required by pandapower<3.0
     - numba
     - geopandas
     - matplotlib
-    - osmnx
+    - osmnx >=1.9.4
     - momepy
     - coolprop
     - fiona
@@ -55,13 +55,13 @@ dependencies:
     - fuzzywuzzy
     - owslib
     - joblib
-    
+
     # From channel jnettels
-    - lpagg >= 0.18.1
+    - lpagg >=0.18.1
 
     # dhnx/oemof dependencies:
     - PyUtilib
-    - Pyomo
+    - Pyomo >=6.8.0
     - addict
     - blinker
     - dill
@@ -72,7 +72,9 @@ dependencies:
 
     # Specify automatic pip installations
     - pip:
-        - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
-        - oemof.solph
+        # - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        - https://github.com/oemof/DHNx/archive/features/multiple_building_connections.tar.gz  # dhnx (branch 'features/multiple_building_connections')
+        - oemof.solph <0.5.6  # 0.5.6 requires numpy>=2.0, but pandapower (required by pandapipes) does not support it yet. Wait for pandapower>=3.0
         - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
         - pandapipes
+        - pandapower  # Set to >=3.0 when available, to lift numpy<2.0 restriction
