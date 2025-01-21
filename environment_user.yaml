@@ -1,0 +1,48 @@
+# If conda activate does not work in PowerShell, use this command:
+# conda init powershell
+
+# This file may be used to create an environment using:
+# conda env create --file=environment.yaml
+
+# A different name can be selected for the new environment:
+# conda env create --name=work_new --file=environment.yaml
+
+# An existing environment can be updated:
+# conda env update --name=work_old --file=environment.yaml
+
+# Keep pip installations to a minimum, and install
+# dependencies with conda instead. To test, use:
+# pip install oemof --dry-run
+
+# Common errors:
+
+# "Cannot mix incompatible Qt library (5.15.8) with this library (5.15.6)"
+
+# Qt is a library for graphical user interfaces.
+# This error can occur when you have separate conda environments with
+# different versions of the package "PyQt5". It should be solved by
+# making sure your new environments use the same version as your base
+# environment.
+# In the example above, we can run the command
+# "conda list qt"
+# to find the actual package name that causes the issue and then
+# "conda install qt-main==5.15.6"
+
+name: work
+channels:
+    - jnettels
+    - conda-forge
+    - defaults
+dependencies:
+    - python
+    - pip
+    - dhnx_addons
+
+    # Specify automatic pip installations
+    - pip:
+        # - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        - https://github.com/oemof/DHNx/archive/features/multiple_building_connections.tar.gz  # dhnx (branch 'features/multiple_building_connections')
+        - oemof.solph <0.5.6  # 0.5.6 requires numpy>=2.0, but pandapower (required by pandapipes) does not support it yet. Wait for pandapower>=3.0
+        - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
+        - pandapipes
+        - pandapower  # Set to >=3.0 when available, to lift numpy<2.0 restriction
