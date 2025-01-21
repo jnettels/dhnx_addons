@@ -24,7 +24,7 @@ jobs:
 
     - name: Install dependencies with conda
       run: |
-        conda env update --name=__setup_conda --file=environment.yaml
+        conda env update --name=__setup_conda --file=environment_dev.yaml
 
     - name: Lint with flake8
       if: runner.os == 'Linux'  # Only needs to run once
