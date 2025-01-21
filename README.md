@@ -1,5 +1,4 @@
-DHNx Addons
-===========
+# DHNx Addons
 
 This package contains a collection of functions useful for workflows with
 [DHNx](https://github.com/oemof/DHNx), [LPagg](https://github.com/jnettels/lpagg),
@@ -10,8 +9,7 @@ Some functions of the script are specific to Germany.
 This is not a stable release and breaking changes will occur often and
 without warning.
 
-Example workflow
-----------------
+## Example workflow
 
 This package provides a default workflow that perfoms the following:
 - Take a polygon defining an area as input
@@ -19,7 +17,7 @@ This package provides a default workflow that perfoms the following:
 - Assign a status "heated" depending on the type of each building
 - Assign a random distribution of construction years
 - Assign a random refurbishment status depending on the building type
-  and construction year based on typical distributions from the literature.
+  and construction year based on typical distributions from the literature
 - Assign a specific heat demand based on construction year, refurbishment
   status and building type from the literature
 - Estimate domestic hot water demand based on the building type
@@ -33,12 +31,28 @@ This package provides a default workflow that perfoms the following:
   for your location from https://kunden.dwd.de/obt/)
 - Choose a random building as a producer for a district heating grid
 - Optimize the installation of a district heating grid along the
-  streets with DHNx
+  streets with DHNx, choosing paths and required diameters for the pipes
+- Simulate the heating grid to determine pressure loss, flow rate and
+  temperature distribution within the network
 
 
-Installation
-------------
+## Installation
 
+### TLDR
+If you already have anaconda installed, the easiest way to get everything
+set up is using the provided user environment yaml:
+
+```conda env create --name=my-env-name --file=environment_user.yaml```
+
+(A simple ``conda install dhnx_addons`` will install all dependencies
+available on conda, but cannot install the required pip dependencies.)
+
+If you want to instead clone this repository to develop it further,
+create a development environment with all the dependencies:
+
+```conda env create --name=my-env-name --file=environment_dev.yaml```
+
+### Detailed Information
 - Download and install Anaconda. On windows, if ``winget`` is installed,
   the fastest way is
   ``winget install anaconda3``
@@ -49,7 +63,7 @@ Installation
 - It is recommended to install the dependencies into a dedicated python
   environment. This repository contains an example environment file
   that can be used like this:
-  ``conda env create --file environment.yaml``
+  ``conda env create --file environment_dev.yaml``
 - Activate the new environment with
   ``conda activate work``
 - If you want to use your new environment in ``Spyder``, you will likely
@@ -57,15 +71,18 @@ Installation
   required version if necessary
 - Some dependencies (namely ``dhnx`` and ``oemof``) can only be obtained
   via ``pip``, not ``conda``
-- As of June 2023, it is recommended to install ``dhnx 0.0.3`` directly from
-  ``pip``. Perform a ``dry-run`` first to see if any packages other than
+- Installation instructions for ``dhnx`` can sometimes change, since it
+  is often worked on. The published ``pip`` version is not up-to-date, but
+  ``environment_dev.yaml`` always contains the current installation target,
+  e.g. the ``dev`` branch or a special feature branch.
+  Perform a ``dry-run`` first to see if any packages other than
   dhnx and oemof would be installed. Try to install those with conda, if
   possible. (Mixing ``pip`` and ``conda`` installations in generally not
   recommended, because ``conda`` does not keep track of the ``pip``
-  installations properly.) Use
-  ``pip install dhnx==0.0.3 --dry-run``
+  installations properly.) To install the ``dev`` branch of ``dhnx``, use
+  ``pip install https://github.com/oemof/DHNx/archive/dev.tar.gz --dry-run``
 - If everything seems fine, perform the actual installation with
-  ``pip install dhnx==0.0.3``
+  ``pip install https://github.com/oemof/DHNx/archive/dev.tar.gz``
 - Development on ``dhnx`` is ongoing. Newer versions might require updates
   to the current workflow. These can be tested by installing directly
   from the repository at https://github.com/oemof/DHNx
@@ -77,6 +94,6 @@ Installation
   ``path`` only during runtime, so it might not be available in other scripts
 - If the user is eligible, an academic license for ``gurobi`` can be obtained
   at https://www.gurobi.com/downloads/end-user-license-agreement-academic/
-- After these steps, run the following to test the example
-  OpenStreetMap workflow
+- To test the example OpenStreetMap workflow, run
   ``python dhnx_addons.py``
+  
