@@ -3606,11 +3606,12 @@ def download_buildings_from_osm(
         gdf.dropna(axis='columns', thresh=dropna_tresh, inplace=True)
 
     gdf.reset_index(inplace=True)
-    try:  # 'node' elements are unwanted point geometries
-        gdf = gdf.loc[gdf["element_type"] != 'node'].copy()
-    except KeyError:
-        pass
-    # Remove nodes column (that somehow make trouble for exporting .geojson)
+    for element_col in ['element_type', 'element']:
+        try:  # 'node' elements are unwanted point geometries
+            gdf = gdf.loc[gdf[element_col] != 'node'].copy()
+        except KeyError:
+            pass
+    # Remove nodes column (that somehow makes trouble for exporting .geojson)
     gdf.drop(columns=['nodes'], inplace=True, errors='ignore')
 
     if rename_dict:
