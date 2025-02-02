@@ -3330,10 +3330,10 @@ def sort_from_north_to_south(gdf, col_id=None, set_index=False):
     return gdf
 
 
-def check_duplicate_geometries(gdf, drop=True, keep='first', show_plot=False):
+def check_duplicate_geometries(gdf, drop=True, keep='first', show_plot=False,
+                               save_path=None):
     """Test the input GeoDataFrame for duplicate geometries and plot them."""
-    geom_col = gdf.geometry.name
-    idx = gdf.duplicated(subset=geom_col)
+    idx = gdf.duplicated(subset=gdf.geometry.name)
     if idx.any():
         if show_plot:
             fig, ax = plt.subplots(dpi=400)
@@ -3342,10 +3342,18 @@ def check_duplicate_geometries(gdf, drop=True, keep='first', show_plot=False):
             plt.title("Red are duplicate geometries. Please fix!")
             plt.show()
 
+        if save_path is not None:
+            logger.info("Saving %s duplicate geometries to %s",
+                        idx.value_counts()[True], save_path)
+            save_gis_generic(
+                gdf.loc[gdf.duplicated(subset=gdf.geometry.name, keep=False)],
+                save_path)
+
         if drop:
             logger.info("Dropping %s duplicate geometries",
                         idx.value_counts()[True])
-            gdf = gdf.drop_duplicates(subset="geometry", keep=keep)
+            gdf = gdf.drop_duplicates(subset=gdf.geometry.name, keep=keep)
+
     return gdf
 
 
@@ -3355,7 +3363,7 @@ def clean_3d_geometry(gdf):
 
     logger.debug("Number of objects in GeoDataFrame: %s", len(gdf))
     # Drop objects with empty geometry
-    gdf.dropna(subset='geometry', inplace=True)
+    gdf.dropna(subset=gdf.geometry.name, inplace=True)
     gdf = gdf[~gdf.is_empty]
 
     # There are lots of 'objects' with tiny area, and often these are not
