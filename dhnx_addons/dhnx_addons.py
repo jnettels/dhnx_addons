@@ -557,7 +557,7 @@ def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833",
     return gdf
 
 
-def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
+def save_gis_generic(gdf, file, ext=None, driver=None, path='.', crs=None,
                      type_errors='coerce', save_excel=False, **kwargs):
     """Save a GeoDataFrame to a given GIS file type at the given path.
 
@@ -598,6 +598,9 @@ def save_gis_generic(gdf, file, ext, driver, path='.', crs=None,
     None.
 
     """
+    if ext is None:
+        ext = os.path.splitext(file)[1]
+
     file = file.removesuffix(ext)  # Drop extension from the file name
 
     filepath = os.path.join(path, file+ext)
