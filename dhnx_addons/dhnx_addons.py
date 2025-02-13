@@ -2019,14 +2019,63 @@ def set_domestic_hot_water_from_values(
 
 def separate_heating_and_DHW(
         df, col_total='e_th_total_kWh', col_heat='e_th_heat_kWh',
-        col_DHW='e_th_DHW_kWh'):
+        col_DHW='e_th_DHW_kWh', col_spec_total='e_th_spec_total',
+        col_spec_heat='e_th_spec_heat', col_spec_DHW='e_th_spec_DHW',
+        A_ref='a_NRF', limit_ratio=None):
     """Subtract domestic hot water from total heat to calculate space heat.
 
-    Allows NaN values in either column and treats them as zero.
+    Specific values in relation to A_ref are updated accordingly.
+
+    Allows NaN values in any of the columns and treats them as zero.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input data.
+    col_total : str, optional
+        Name of column containing total annual energy.
+        The default is 'e_th_total_kWh'.
+    col_heat : str, optional
+        Name of column containing total annual heat energy.
+        The default is 'e_th_heat_kWh'.
+    col_DHW : str, optional
+        Name of column containing total annual domestic hot water energy.
+        The default is 'e_th_DHW_kWh'.
+    col_spec_total : str, optional
+        Name of column containing specific annual energy.
+        The default is 'e_th_spec_total'.
+    col_spec_heat : str, optional
+        Name of column containing specific annual heat energy.
+        The default is 'e_th_spec_heat'.
+    col_spec_DHW : str, optional
+        Name of column containing specific annual domestic hot water energy.
+        The default is 'e_th_spec_DHW'.
+    A_ref : str, optional
+        Name of column containing reference area for specific values.
+        The default is 'a_NRF'.
+    limit_ratio : float, optional
+        If not None, limit the values in col_DHW by this ratio of col_total.
+        Example: Assume total is known, and DHW is guessed. Prevent inplausible
+        values of DHW by limiting them to 30% of total annual energy with
+        limit_ratio=0.3. The default is None.
+
+    Returns
+    -------
+    df : DataFrame
+        Result data.
+
     """
-    logger.info("Separate heating and DHW")
+    logger.info("Separate heating and DHW energy")
+    if limit_ratio is not None:
+        df[col_DHW] = df[col_DHW].clip(upper=df[col_total]*limit_ratio)
+
     df[col_heat] = df[col_total].sub(df[col_DHW], fill_value=0).clip(lower=0)
     df[col_total] = df[col_heat].add(df[col_DHW], fill_value=0)
+
+    # Update all specific heat values
+    df[col_spec_total] = df[col_total] / df[A_ref]
+    df[col_spec_heat] = df[col_heat] / df[A_ref]
+    df[col_spec_DHW] = df[col_DHW] / df[A_ref]
 
     return df
 
