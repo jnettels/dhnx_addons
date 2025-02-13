@@ -592,12 +592,15 @@ def save_gis_generic(gdf, file, ext=None, driver=None, path='.', crs=None,
         is False.
     **kwargs :
         Other keyword arguments are passed on to geopandas.to_file().
+        'encoding' is set to 'utf-8' by default.
 
     Returns
     -------
     None.
 
     """
+    kwargs.setdefault("encoding", "utf-8")
+
     if ext is None:
         ext = os.path.splitext(file)[1]
 
