@@ -73,8 +73,7 @@ dependencies:
 
     # Specify automatic pip installations
     - pip:
-        # - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
-        - https://github.com/oemof/DHNx/archive/features/multiple_building_connections.tar.gz  # dhnx (branch 'features/multiple_building_connections')
+        - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
         - oemof.solph <0.5.6  # 0.5.6 requires numpy>=2.0, but pandapower (required by pandapipes) does not support it yet. Wait for pandapower>=3.0
         - https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz # demandlib (custom fork)
         - pandapipes >=0.11
