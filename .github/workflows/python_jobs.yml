@@ -17,20 +17,18 @@ jobs:
       uses: actions/checkout@v1  # use the latest code commit
 
     - name: Setup conda with python ${{ matrix.python-version }}
-      uses: s-weigand/setup-conda@v1
+      uses: conda-incubator/setup-miniconda@v3
       with:
-        update-conda: true
+        auto-update-conda: true
+        activate-environment: work
+        environment-file: environment_dev.yaml
         python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies with conda
-      run: |
-        conda env update --name=__setup_conda --file=environment_dev.yaml
-
     - name: Lint with flake8
+      shell: pwsh  # Needed where conda env is used
       if: runner.os == 'Linux'  # Only needs to run once
       run: |
-        # conda install flake8
-        pip install flake8  # conda install is currently broken
+        pip install flake8
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
@@ -45,6 +43,7 @@ jobs:
       run: sudo apt install coinor-cbc -y
 
     - name: Run OpenStreetMap example workflow
+      shell: pwsh  # Needed where conda env is used
       run: |
         cd dhnx_addons
         python dhnx_addons.py
@@ -63,14 +62,16 @@ jobs:
       uses: actions/checkout@v1  # use the latest code commit
 
     - name: Setup conda with python ${{ matrix.python-version }}
-      uses: s-weigand/setup-conda@v1
+      uses: conda-incubator/setup-miniconda@v3
       with:
-        update-conda: true
+        auto-update-conda: true
+        activate-environment: work
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies with conda
+      shell: pwsh  # Needed where conda env is used
       run: |
-        conda install conda-build setuptools setuptools_scm
+        conda install conda-build setuptools setuptools_scm -c defaults
 
     - name: Install solver cbc (Windows)
       if: runner.os == 'Windows'
@@ -81,5 +82,6 @@ jobs:
       run: sudo apt install coinor-cbc -y
 
     - name: Build with conda
+      shell: pwsh  # Needed where conda env is used
       run: |
-         conda build conda.recipe -c conda-forge -c jnettels
+        conda build conda.recipe -c jnettels -c conda-forge -c defaults
