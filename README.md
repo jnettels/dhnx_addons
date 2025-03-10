@@ -39,13 +39,20 @@ This package provides a default workflow that perfoms the following:
 ## Installation
 
 ### TLDR
-If you already have anaconda installed, the easiest way to get everything
-set up is using the provided user environment yaml:
+If you already have Anaconda installed, the easiest way to get everything
+set up is to create a dedicated python environment from a yaml. Save the file
+``environment_user.yaml`` to a folder where you run the following command.
+Change the environment name ``my-env-name`` to something useful like ``work``
+or ``dhnx``:
 
 ```conda env create --name=my-env-name --file=environment_user.yaml```
 
 (A simple ``conda install dhnx_addons`` will install all dependencies
 available on conda, but cannot install the required pip dependencies.)
+
+To update an existing environment, you can use:
+
+```conda env update --name=my-env-name --file=environment_user.yaml```
 
 If you want to instead clone this repository to develop it further,
 create a development environment with all the dependencies:
@@ -96,4 +103,3 @@ create a development environment with all the dependencies:
   at https://www.gurobi.com/downloads/end-user-license-agreement-academic/
 - To test the example OpenStreetMap workflow, run
   ``python dhnx_addons.py``
-  
