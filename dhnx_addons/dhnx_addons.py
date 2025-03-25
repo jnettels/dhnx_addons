@@ -3947,6 +3947,7 @@ def clean_previous_street_results(gdf):
 # @memory.cache  # Deactivated, as it sometimes causes stack overflow exception
 def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              save_path='./out', show_plot=True,
+             save_gis_ext='.geojson',
              path_invest_data=None,  # 'invest_data',
              path_pipe_data=None,  # "input/Pipe_data.csv",
              pipe_data_sheet_name=0,
@@ -3986,6 +3987,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         to the district heating grid.
     save_path : str, optional
         Path where result files are saved. The default is './out'.
+    save_gis_ext : str, optional
+        File type extension for saved GIS objects. Common options are
+        '.gpkg', '.geojson' and '.shp'. The default is '.geojson'.
     show_plot : boolean, optional
         If True, show plots generated during runtime. The default is True.
     path_invest_data : str, optional
@@ -4122,8 +4126,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
             os.makedirs(os.path.dirname(save_path))
         for filename, gdf in tn_input.items():
             try:
-                save_geojson(gdf, file=filename, path=save_path,
-                             type_errors='coerce')
+                save_gis_generic(gdf, file=filename, path=save_path,
+                                 ext=save_gis_ext, type_errors='coerce')
             except Exception as e:
                 print(gdf)
                 breakpoint()
@@ -4280,7 +4284,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     # Export results
     gdf_pipes = gdf_pipes[gdf_pipes['DN'] > 0]  # Keep only DN>0 in output
     if save_path is not None:
-        save_geojson(gdf_pipes, file='pipes_result', path=save_path)
+        save_gis_generic(gdf_pipes, file='pipes_result', path=save_path,
+                         ext=save_gis_ext)
         save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
 
     # Save grouped info about pipes
@@ -4780,6 +4785,7 @@ def calc_pipes_p_max(df):
 
 def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                    save_path='result_pandapipes',
+                   save_gis_ext='.geojson',
                    P_th_kW=None,
                    f_length_loss=2,
                    pressure_net=12,  # [bar] (Pressure at the heat supply)
@@ -4818,6 +4824,12 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     pandapipes calculation, we only want to evaluate pressure losses and
     temperature drop along the forward flow. Therefore the U-value in
     df_DN is divided by f_length_loss, i.e. halfed by default.
+
+    Parameters
+    ----------
+    save_gis_ext : str, optional
+        File type extension for saved GIS objects. Common options are
+        '.gpkg', '.geojson' and '.shp'. The default is '.geojson'.
 
     """
     import math
@@ -5096,13 +5108,6 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
         how='left', suffixes=('', '_pp')
         ).set_index(producers.index)
 
-    if save_path is not None:
-        # export the GeoDataFrames with the simulation results to .geojson
-        save_geojson(pipes, 'pandapipes_pipes', path=save_path)
-        save_geojson(forks, 'pandapipes_forks', path=save_path)
-        save_geojson(consumers, 'pandapipes_consumers', path=save_path)
-        save_geojson(producers, 'pandapipes_producers', path=save_path)
-
     # Determine the low pressure and low temperature points ("Schlechtpunkt")
     forks_p_min = forks.loc[[forks['p_bar'].idxmin()]]
     forks_t_min = forks.loc[[forks['t_°C'].idxmin()]]
@@ -5207,6 +5212,17 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                 title='Pressure distribution to point of minimum pressure',
                 set_axis_off=True,
                 )
+
+    if save_path is not None:
+        # export the GeoDataFrames with the simulation results to .geojson
+        save_gis_generic(pipes, 'pandapipes_pipes', path=save_path,
+                         ext=save_gis_ext)
+        save_gis_generic(forks, 'pandapipes_forks', path=save_path,
+                         ext=save_gis_ext)
+        save_gis_generic(consumers, 'pandapipes_consumers', path=save_path,
+                         ext=save_gis_ext)
+        save_gis_generic(producers, 'pandapipes_producers', path=save_path,
+                         ext=save_gis_ext)
 
     return pipes, forks, consumers, producers
 
