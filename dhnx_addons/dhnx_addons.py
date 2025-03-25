@@ -5214,6 +5214,11 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
         idx_name = 'index'
     pipes = pipes.reset_index()
 
+    # At this point, 'forks' contains not only those connecting the chosen
+    # pipes, but also the remaining possible forks. Pandapipes would set them
+    # "out of service" anyway, but it is cleaner to just remove them here
+    forks = forks.loc[forks.intersects(pipes.union_all())]
+
     # Add data of technical data sheet with the DN numbers to the pipes table
     cols_select = ["Inner diameter [m]", "Roughness [mm]",
                    "U-value [W/mK]", "alpha [W/m2K]"]
