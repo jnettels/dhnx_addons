@@ -11,8 +11,17 @@ dist/
 *.xlsx
 *.pdf
 *.png
+*.svg
+*.geojson
+*.pickle
+*.yaml
+*.code-workspace
 
 dhnx_addons/invest_data/network/pipes.csv
 
 */result_*
 dhnx_addons/debug/
+install_helpers/
+
+requirement*
+environment*
