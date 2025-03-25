@@ -4702,16 +4702,16 @@ def calc_lineralized_pipe_input(
         else:
             df = pd.read_csv(path_pipe_data, sep=",")
     else:
-        logger.info("Provide a file '%s' with pipe properties per DN for "
-                    "a custom lineralized optimization input. File not found, "
-                    "using default pipe properties instead.", path_pipe_data)
+        logger.info("Using default pipe properties. You can set the parameter "
+                    "'path_pipe_data' to use a file with pipe properties per "
+                    "DN for a custom lineralized optimization input.")
         df = get_default_df_DN(T_FF=T_FF, T_RF=T_RF, T_ground=T_ground)
 
-    # This is an example of input data. The Roughness refers to the roughness of
-    # the inner surface and depends on the material (steel, plastic). The U-value
-    # and the costs refer to the costs of the whole pipeline trench, so including
-    # forward and return pipelines. The design process of DHNx is based on
-    # a maximum pressure drop per meter as design criteria:
+    # This is an example of input data. The Roughness refers to the roughness
+    # of the inner surface and depends on the material (steel, plastic). The
+    # U-value and the costs refer to the costs of the whole pipeline trench,
+    # so including forward and return pipelines. The design process of DHNx
+    # is based on a maximum pressure drop per meter as design criteria:
     # You could also define the maximum pressure drop individually for each DN
     # number.
     if "Max delta p [Pa/m]" not in df.columns:
