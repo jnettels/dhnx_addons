@@ -1123,6 +1123,23 @@ def assign_alkis_functions_to_osm_building_keys(
     return buildings
 
 
+def assign_alkis_functions_to_bdew_type(
+        gdf,
+        join_on="Funktion_txt",
+        ):
+    path = os.path.join(os.path.dirname(__file__),
+                        "input", "alkis_to_bdew.csv")
+    df_alkis = pd.read_csv(path)
+    df_alkis['Typ_BDEW'] = (df_alkis['Typ_BDEW_th'] + '/'
+                            + df_alkis['Typ_BDEW_el'])
+    df_alkis = df_alkis.drop(columns=['Typ_BDEW_th', 'Typ_BDEW_el', 'WG/NWG'],
+                             errors='ignore')
+    df_alkis = df_alkis.set_index(join_on, drop=True)
+
+    gdf = gdf.join(df_alkis, on=join_on, how='left')
+    return gdf
+
+
 def fill_residential_osm_building_types(
         gdf,
         col_building_osm='building_osm',

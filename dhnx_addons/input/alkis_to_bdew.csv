@@ -1,0 +1,147 @@
+Funktion_ID,Funktion_txt,WG/NWG,Typ_BDEW_th,Typ_BDEW_el
+1000,Wohngebäude,WG,MFH,H0
+1010,Wohnhaus,WG,EFH,H0
+1020,Wohnheim,NWG,GBH,H0
+1021,Kinderheim,NWG,GBH,G2
+1022,Seniorenheim,NWG,GKO,G2
+1050,Spielkasino,NWG,GBD,G2
+1100,Gemischt genutztes Gebäude mit Wohnen,WG,MFH,H0
+1110,Wohngebäude mit Gemeinbedarf,WG,MFH,H0
+1120,Wohngebäude mit Handel und Dienstleistungen,WG,MFH,H0
+1130,Wohngebäude mit Gewerbe und Industrie,WG,MFH,H0
+1210,Land- und forstwirtschaftliches Wohngebäude,WG,EFH,H0
+1220,Land- und forstwirtschaftliches Wohn- und Betriebsgebäude,WG,EFH,L2
+1310,Gebäude zur Freizeitgestaltung,NWG,GKO,G2
+1312,Wochenendhaus,NWG,GBH,G6
+1313,Gartenhaus,NWG,GMF,G2
+2000,Gebäude für Wirtschaft oder Gewerbe,NWG,GHD,G1
+2010,Gebäude für Handel und Dienstleistungen,NWG,GHD,G1
+2020,Bürogebäude,NWG,GBD,G1
+2030,Kreditinstitut,NWG,GKO,G1
+2050,Geschäftsgebäude,NWG,GHA,G1
+2053,Markthalle,NWG,GHA,G4
+2060,Messehalle,NWG,GKO,G1
+2070,Gebäude für Beherbergung,NWG,GBH,G6
+2072,Jugendherberge,NWG,GBH,G2
+2080,Gebäude für Bewirtung,NWG,GGA,G2
+2081,"Gaststätte, Restaurant",NWG,GGA,G2
+2090,Freizeit- und Vergnügungsstätte,NWG,GKO,G2
+2100,Gebäude für Gewerbe und Industrie,NWG,GHD,G1
+2130,Tankstelle,NWG,GHA,G4
+2131,"Waschstraße, Waschanlage, Waschhalle",NWG,GWA,G4
+2140,Gebäude für Vorratshaltung,NWG,GHA,G3
+2143,"Lagerhalle, Lagerschuppen, Lagerhaus",NWG,GHA,G3
+2160,Gebäude für Forschungszwecke,NWG,GKO,G1
+2213,Schöpfwerk,NWG,GMF,G3
+2400,Betriebsgebäude zu Verkehrsanlagen (allgemein),NWG,GKO,G1
+2410,Betriebsgebäude für Straßenverkehr,NWG,GKO,G1
+2420,Betriebsgebäude für Schienenverkehr,NWG,GKO,G1
+2430,Betriebsgebäude für Flugverkehr,NWG,GKO,G1
+2440,Betriebsgebäude für Schiffsverkehr,NWG,GKO,G1
+2443,Betriebsgebäude zur Schleuse,NWG,GKO,G3
+2444,Bootshaus,NWG,GMK,G0
+2461,Parkhaus,NWG,GMK,G3
+2462,Parkdeck,NWG,GMK,G3
+2463,Garage,NWG,GMK,G0
+2464,Fahrzeughalle,NWG,GMK,G0
+2465,Tiefgarage,NWG,GMK,G3
+2500,Gebäude zur Versorgung,NWG,GKO,G1
+2512,Pumpstation,NWG,GMF,G3
+2513,Wasserbehälter,NWG,GWA,G0
+2520,Gebäude zur Elektrizitätsversorgung,NWG,GKO,G3
+2523,Umformer,NWG,GMK,G3
+2540,Gebäude für Fernmeldewesen,NWG,GBD,G3
+2560,Gebäude an unterirdischen Leitungen,NWG,GKO,G1
+2570,Gebäude zur Gasversorgung,NWG,GKO,G3
+2600,Gebäude zur Entsorgung,NWG,GMF,G1
+2700,Gebäude für Land- und Forstwirtschaft,NWG,GMF,L0
+2720,Land- und forstwirtschaftliches Betriebsgebäude,NWG,GMF,L0
+2723,Schuppen,NWG,GHA,L0
+2740,"Treibhaus, Gewächshaus",NWG,GGB,G3
+3000,Gebäude für öffentliche Zwecke,NWG,GKO,G1
+3010,Verwaltungsgebäude,NWG,GKO,G1
+3011,Parlament,NWG,GKO,G1
+3012,Rathaus,NWG,GKO,G1
+3013,Post,NWG,GKO,G4
+3014,Zollamt,NWG,GKO,G1
+3015,Gericht,NWG,GKO,G1
+3016,"Botschaft, Konsulat",NWG,GKO,G1
+3020,Gebäude für Bildung und Forschung,NWG,GKO,G1
+3021,Allgemein bildende Schule,NWG,GKO,G1
+3022,Berufsbildende Schule,NWG,GKO,G1
+3023,"Hochschulgebäude (Fachhochschule, Universität)",NWG,GKO,G1
+3024,Forschungsinstitut,NWG,GKO,G1
+3032,"Theater, Oper",NWG,GBD,G2
+3033,Konzertgebäude,NWG,GBD,G2
+3034,Museum,NWG,GKO,G1
+3035,"Rundfunk, Fernsehen",NWG,GBD,G3
+3036,Veranstaltungsgebäude,NWG,GKO,G6
+3037,"Bibliothek, Bücherei",NWG,GKO,G1
+3040,Gebäude für religiöse Zwecke,NWG,GKO,G6
+3041,Kirche,NWG,GKO,G6
+3042,Synagoge,NWG,GKO,G6
+3043,Kapelle,NWG,GKO,G6
+3044,Gemeindehaus,NWG,GKO,G6
+3045,Gotteshaus,NWG,GKO,G6
+3046,Moschee,NWG,GKO,G6
+3050,Gebäude für Gesundheitswesen,NWG,GBH,G1
+3051,Krankenhaus,NWG,GBH,G3
+3052,"Heilanstalt, Pflegeanstalt, Pflegestation",NWG,GBH,G1
+3060,Gebäude für soziale Zwecke,NWG,GKO,G0
+3062,"Freizeit-, Vereinsheim, Dorfgemeinschafts-, Bürgerhaus",NWG,GKO,G2
+3063,Seniorenfreizeitstätte,NWG,GKO,G1
+3065,"Kinderkrippe, Kindergarten, Kindertagesstätte",NWG,GKO,G1
+3071,Polizei,NWG,GKO,G3
+3072,Feuerwehr,NWG,GKO,G3
+3073,Kaserne,NWG,GKO,G3
+3075,Justizvollzugsanstalt,NWG,GKO,G1
+3080,Friedhofsgebäude,NWG,GGB,G4
+3081,Trauerhalle,NWG,GBD,G4
+3082,Krematorium,NWG,GWA,G4
+3091,Bahnhofsgebäude,NWG,GKO,G1
+3092,Flughafengebäude,NWG,GKO,G3
+3100,Gebäude für öffentliche Zwecke mit Wohnen,NWG,GKO,G0
+3200,Gebäude für Erholungszwecke,NWG,GBH,G2
+3210,Gebäude für Sportzwecke,NWG,GKO,G2
+3211,"Sport-, Turnhalle",NWG,GKO,G2
+3212,Gebäude zum Sportplatz,NWG,GKO,G2
+3221,Hallenbad,NWG,GBH,G2
+3260,Gebäude im Zoo,NWG,GMF,G1
+3270,Gebäude im botanischen Garten,NWG,GGB,G3
+9998,Nach Quellenlage nicht zu spezifizieren,NWG,GHD,G0
+10000,Aussichtsturm,NWG,GMK,G6
+10001,Carport,NWG,GMK,G0
+10002,"Denkmal, Denkstein, Standbild",NWG,GMK,G6
+10004,Elektrizitätswerk,NWG,GBD,G3
+10005,Funkmast,NWG,GMK,G3
+10006,Gebäude der Abfalldeponie,NWG,GMF,G1
+10007,Gebäude der Kläranlage,NWG,GMF,G3
+10008,Gebäude für kulturelle Zwecke,NWG,GKO,G2
+10009,Gebäude zum Busbahnhof,NWG,GKO,G1
+10010,Gebäude zum Parken,NWG,GMK,G3
+10011,Gebäude zur Müllverbrennung,NWG,GWA,G1
+10012,Gebäude zur Versorgungsanlage,NWG,GKO,G1
+10013,Gebäude zur Wasserversorgung,NWG,GKO,G3
+10014,Heizwerk,NWG,GKO,G3
+10016,"Laufkran, Brückenlaufkran",NWG,GMK,G0
+10017,Mast,NWG,GMK,G3
+10018,Müllbunker,NWG,GMF,G3
+10021,Scheune,NWG,GHA,G0
+10022,Scheune und Stall,NWG,GHA,G0
+10023,"Schornstein, Schlot, Esse",NWG,GMK,G0
+10024,Schutzbunker,NWG,GKO,G0
+10025,"Sende-, Funkturm, Fernmeldeturm",NWG,GMK,G3
+10026,Silo,NWG,GWA,G0
+10027,Sonstiges (SonstigesBauwerkOderSonstigeEinrichtung),NWG,GHD,G0
+10028,Speditionsgebäude,NWG,GHA,G1
+10029,Stall,NWG,GMF,L2
+10030,Tank,NWG,GWA,G3
+10031,Toilette,NWG,GMF,G1
+10032,Überdachung,NWG,GMK,G0
+10033,Umspannwerk,NWG,GMK,G3
+10034,Versicherung,NWG,GKO,G1
+10035,Wasserturm,NWG,GWA,G3
+10037,Zuschauertribüne,NWG,GMK,G2
+10038,"Zuschauertribüne, überdacht",NWG,GMK,G2
+10039,Windrad,NWG,GMK,G3
+10040,"Kirchturm, Glockenturm",NWG,GKO,G6
