@@ -160,6 +160,7 @@ import re
 import io
 import json
 import logging
+import locale
 import warnings
 from joblib import Memory
 from packaging.version import parse
@@ -4373,6 +4374,86 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # return dhnx_return
     return network, gdf_pipes, df_pipes, df_DN
+
+
+def simultaneity_factor(n, decimals=5):
+    """Calculate simultaneity factor based on number of consumers n.
+
+    Winter, Walter; Haslauer, Thomas; Obernberger, Ingwald (2001)
+    Untersuchungen der Gleichzeitigkeit in kleinen und
+    mittleren Nahwärmenetzen. In: Euroheat & Power (9/10).
+    """
+    n = np.asarray(n, dtype=float)
+    a = 0.449677646267461
+    b = 0.551234688
+    c = 53.84382392
+    d = 1.762743268
+    f = a + b / (1 + (n / c) ** d)
+    f = np.clip(f, a_min=0, a_max=1)
+    f = np.round(f, decimals)
+    return f
+
+
+def plot_simultaneity_factor(
+        n=None, other_points=None, threshold_log=10000, save_path=None,
+        filename='Verlauf Gleichzeitigkeitsfaktor', filetypes=None,
+        dpi=200, figsize=(14, 7), show_plot=True):
+    """Plot simultaneity factor of n consumers along with the distribution.
+
+    To control language for plot labels, set locale:
+    locale.setlocale(locale.LC_ALL, 'de_DE.UTF-8')
+    locale.setlocale(locale.LC_ALL, 'en_US')
+    """
+    if 'en_' in locale.getlocale()[0]:
+        txt_title = "Theoretical simultaneity factor"
+        txt_xlabel = r"Number of buildings [-]"
+        txt_ylabel = r"Simultaneity factor [-]"
+        txt_label_dist = "Distribution"
+        txt_n_buildings = "Selected number of buildings"
+    else:
+        txt_title = "Theoretischer Gleichzeitigkeitsfaktor"
+        txt_xlabel = r"Anzahl Gebäude [-]"
+        txt_ylabel = r"Gleichzeitigkeitsfaktor [-]"
+        txt_label_dist = "Verteilung"
+        txt_n_buildings = "Gewählte Gebäudeanzahl"
+
+    if n is not None:
+        n_max = n
+        sf = simultaneity_factor(n)
+    else:
+        n_max = 300  # Range in original source
+        sf = None
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    plt.title(txt_title)
+    if sf is not None:
+        ax.plot(n, sf, lw=0, marker="o", label=txt_n_buildings)
+    if isinstance(other_points, list):
+        for kwargs in other_points:
+            _x = kwargs.pop("x")
+            n_max = max(n_max, _x)
+            _y = kwargs.pop("y")
+            kwargs.setdefault("lw", 0)
+            kwargs.setdefault("marker", "x")
+            ax.plot(_x, _y, **kwargs)
+
+    x = np.arange(n_max)
+    y = simultaneity_factor(x)
+    ax.plot(x, y, label=txt_label_dist)
+    ax.set_xlabel(txt_xlabel)
+    ax.set_ylabel(txt_ylabel)
+    if n_max > threshold_log:
+        ax.set_xscale('log')
+    plt.legend()
+    plt.grid()
+
+    if save_path is not None:
+        custom_plot_save(filename=filename, folder=save_path, dpi=dpi,
+                         extensions=filetypes)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 
 def get_installed_solver(auto_install_cbc=True):
