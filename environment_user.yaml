@@ -34,7 +34,7 @@ channels:
     - conda-forge
     - defaults
 dependencies:
-    - python
+    - python <3.13  # As of 03.2025, dependencies cannot be solved with 3.13
     - pip
     - dhnx_addons
 
