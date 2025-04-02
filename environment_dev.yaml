@@ -39,7 +39,7 @@ dependencies:
     - pandas
     - numpy <2.0  # required by pandapower<3.0
     - numba
-    - geopandas
+    - geopandas >=1.0
     - matplotlib
     - osmnx >=1.9.4
     - momepy
@@ -58,7 +58,7 @@ dependencies:
     - joblib
 
     # From channel jnettels
-    - lpagg >=0.18.1
+    - lpagg >=0.18.4
 
     # dhnx/oemof dependencies:
     - PyUtilib
