@@ -248,6 +248,15 @@ except ImportError as e:
     logger.warning("Optional dependency 'pandapipes' can be installed with "
                    "'pip install pandapipes'")
 
+try:
+    import lpagg
+    import lpagg.agg
+    import lpagg.misc
+except ImportError as e:
+    logger.exception(e)
+    logger.warning("Optional dependency 'lpagg' can be installed with "
+                   "'conda install lpagg -c jnettels'")
+
 
 def main():
     """Run an example main method."""
@@ -5595,8 +5604,6 @@ def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
 # Section "lpagg" (load profile aggregator)
 def find_TRY_regions(gdf, show_plot=False, buffer=2000, col_try='try_code'):
     """Find DWD typical reference year (TRY) region of objects in gdf."""
-    import lpagg.misc
-
     # Find the TRY-region for each building
     gdf_TRY = lpagg.misc.get_TRY_polygons_GeoDataFrame(col_try)
 
@@ -5694,7 +5701,6 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     'sigma': sigma,
     'TRY': TRY,
     """
-    import lpagg
     if col_try not in gdf.columns:
         gdf = find_TRY_regions(gdf, show_plot=show_plot, col_try=col_try)
     TRY_list = gdf[col_try].unique()
@@ -5830,8 +5836,6 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
     settings instead
 
     """
-    import lpagg.agg
-    import lpagg.misc
     lpagg.misc.setup()
 
     if cfg_kwargs.get('use_demandlib', False) == 'auto':
