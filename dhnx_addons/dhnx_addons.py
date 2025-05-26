@@ -268,12 +268,19 @@ def main():
 
 def setup(log_level='INFO'):
     """Set up the logger and other settings."""
-    logger.setLevel(level=log_level.upper())  # Logger for this module
-    # logging.getLogger('osmnx').setLevel(level='ERROR')
-    # logging.getLogger('dhnx').setLevel(level='ERROR')
     logging.basicConfig(
-        format='%(asctime)s %(module)-12s %(levelname)-8s %(message)s',
+        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
         datefmt='%H:%M:%S')
+
+    logger.setLevel(level=log_level.upper())  # Logger for this module
+    logging.getLogger('osmnx').setLevel(level=log_level)
+    logging.getLogger('dhnx').setLevel(level=log_level)
+    logging.getLogger('lpagg').setLevel(level=log_level)
+    logging.getLogger('lpagg.agg').setLevel(level=log_level)
+    logging.getLogger('lpagg.VDI4655').setLevel(level=log_level)
+    logging.getLogger('oemof.solph').setLevel(level=log_level)
+    logging.getLogger('pyomo.core').setLevel(level=log_level)
+    logging.getLogger('pyogrio._io').setLevel(level=log_level)
 
     # Loading the pandapipes library modifies global pandas options
     # for printing dataframes. Set them back to the default values
@@ -296,6 +303,9 @@ def setup(log_level='INFO'):
         action="ignore", module='oemof.network',
         message=("Usage of oemof.network.Component is deprecated. "
                  "Use oemof.network.Node instead."), category=FutureWarning)
+    warnings.filterwarnings(
+        action="ignore", module='contextily',
+        message=("The inferred zoom level of "), category=UserWarning)
 
 
 def workflow_example_openstreetmap(
