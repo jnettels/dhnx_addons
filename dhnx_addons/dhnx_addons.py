@@ -5784,6 +5784,8 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
                       col_try='try_code',
                       col_heat='e_th_heat_kWh',
                       col_DHW='e_th_DHW_kWh',
+                      col_T_lim_summer='summer_temperature_limit',
+                      col_T_lim_winter='winter_temperature_limit',
                       weather_file=None,
                       house_type_replacements={
                           'SFH': 'EFH',
@@ -5824,6 +5826,8 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
         col_N_pers: 'N_Pers',
         col_N_flats: 'N_WE',
         col_try: 'TRY',
+        col_T_lim_summer: 'summer_temperature_limit',
+        col_T_lim_winter: 'winter_temperature_limit',
         }
     df_lpagg.rename(columns=rename_dict, inplace=True)
     df_lpagg.replace({'house_type': house_type_replacements}, inplace=True)
@@ -5835,7 +5839,8 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
             # Try set_n_persons_and_flats() to fill with default values
             df_lpagg[col] = float('nan')
 
-    df_lpagg = df_lpagg[list(rename_dict.values())]
+    cols_keep = [c for c in df_lpagg.columns if c in rename_dict.values()]
+    df_lpagg = df_lpagg[cols_keep]
 
     # Set some more columns:
     df_lpagg['Q_Kalt_a'] = None  # Cooling is not used
@@ -5886,9 +5891,9 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     settings.setdefault('apply_DST', True)
     # The VDI 4655 default heat limit is 15°C (definition of summer days).
     # For modern building types, this can be set to a lower value e.g. 12°C
-    settings.setdefault('Tamb_heat_limit', 15)
-    # In addition to the Tamb_heat_limit, you may overwrite the VDI4655 and
-    # set heat demand on all summer days to zero:
+    settings.setdefault('summer_temperature_limit', 15)
+    # In addition to the summer_temperature_limit, you may overwrite the
+    # VDI4655 and set heat demand on all summer days to zero:
     settings.setdefault('zero_summer_heat_demand', False)
     # Holidays are treated as sundays. You can select a country and
     # (optionally) a province: https://pypi.org/project/holidays/
