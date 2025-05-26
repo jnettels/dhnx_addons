@@ -4420,24 +4420,34 @@ def calc_pipes_stats(df_pipes_agg):
     return df_pipes_stat
 
 
-def re_run_optimization(network, invest_opt, **settings):
+def re_run_optimization(network, invest_opt, exp=None, **settings):
     """Re-run the optimization if the previous result network contained cycles.
 
     Using the previous result network as the starting point normally resolves
     any cycles.
-    """
-    results_edges = network.results.optimization['components']['pipes']
 
+    For reasons unknown, the optimization result sometimes contains pipes with
+    tiny capacities like 2e-6 kW. These are not actually able to transport
+    meaningful amounts of energy, but form loops in the network which prevent
+    the following process from working.
+    """
+    if exp is None:
+        lim_capacity = 0  # Capacity limit becomes 1e-5, 1e-4, 1e-3 ...
+        exp_next = -5  # ... for each recursive call of this function
+    else:
+        lim_capacity = pow(10, exp)  # Capacity limit becomes 1e-5, 1e-4, 1e-3
+        exp_next = exp + 1  # ... for each recursive call of this function
+
+    results_edges = network.results.optimization['components']['pipes']
     gdf_pipes = network.components['pipes'].copy()
-    gdf_pipes = gdf_pipes[results_edges["capacity"] > 0]
+    gdf_pipes = gdf_pipes[results_edges["capacity"] > lim_capacity]
 
     G = momepy.gdf_to_nx(gdf_pipes, approach="primal")
 
     if not nx.is_connected(G):
-        pos = {n: [n[0], n[1]] for n in list(G.nodes)}
-        nx.draw(G, pos, node_size=1)
-        plt.axis('equal')
-        plt.show()
+        plot_networkx_graph(G)
+        # SG = G.subgraph(max(nx.connected_components(G), key=len))
+        # plot_networkx_graph(SG)
         # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
         raise ValueError("The resulting network is not fully connected. "
                          "Cannot continue.")
@@ -4445,10 +4455,19 @@ def re_run_optimization(network, invest_opt, **settings):
     if not nx.is_forest(G):
         # nx.is_forest() is False if graph has cycles
         logger.warning("Optimization result network contains cycles. Run "
-                       "again with previous result as starting point")
+                       "again with previous result as starting point, after "
+                       f"keeping only pipes with capacity>{lim_capacity} kW.")
         # Use the previous result as the input, then re-run the optimization
         network.components['pipes'] = gdf_pipes
+        if settings["solver"] == 'gurobi':
+            # Force Gurobi to be more careful in numerical computations
+            settings['solver_cmdline_options']['NumericFocus'] = 3
         network.optimize_investment(invest_options=invest_opt, **settings)
+
+        re_run_optimization(network, invest_opt, exp_next, **settings)
+
+    # The 'network' object is modified in place and contains the result
+    return
 
 
 def simultaneity_factor(n, decimals=5):
@@ -4531,40 +4550,59 @@ def plot_simultaneity_factor(
         plt.close()
 
 
+def plot_networkx_graph(G, node_size=1, arrowsize=2, width=0.5,
+                        figsize=(6, 6), dpi=300):
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    pos = {n: [n[0], n[1]] for n in list(G.nodes)}
+    if not G.is_directed():
+        arrowsize = 10  # Only applicable for directed graphs
+    nx.draw(G, pos, node_size=node_size, arrowsize=arrowsize, width=width,
+            ax=ax)
+    plt.axis('equal')
+    plt.show()
+
+
+
 def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
                                      col_p_th='P_heat_max'):
     """Calculate deterministic simultaneity factor based on network structure.
 
     For each pipe segment, determine how many consumers are downstream and
     apply a simultaneity factor based on that number.
+
+    This is compatible with multiple producers, but only if each of them
+    is designed to supply the complete network on its own.
+    In that case, the largest required thermal capacity for each pipe
+    segment is selected.
     """
     logger.info("Apply deterministic simultaneity factors to pipes")
 
-    # Keep only pipes with capacity > 0
-    gdf_pipes = gdf_pipes[gdf_pipes["capacity"] > 0].copy()
-    # Create undirected graph to find shortest paths
-    G_undirected = momepy.gdf_to_nx(gdf_pipes, approach="primal")
-    # Test for cycles in graph, which would prevent the following from working
-    if not nx.is_forest(G_undirected):
-        # pos = {n: [n[0], n[1]] for n in list(G_undirected.nodes)}
-        # nx.draw(G_undirected, pos, node_size=1)
-        # plt.axis('equal')
-        # plt.show()
-        raise ValueError("Graph contains loops/cycles, this is not allowed")
+    if not col_p_th in gdf_consumers.columns:
+        col_p_th = 'P_heat_max'  # TODO fix workaround
+        # raise ValueError(f"Column name for peak power '{col_p_th}' "
+        #                  "not found in consumers GeoDataFrame.")
 
-    if len(gdf_producers) > 1:
-        raise ValueError("'Deterministic simultaneity' method is not "
-                         "supported for multiple producers")
-    # Get producer node as starting point
-    producer = (gdf_producers
-                .intersection(gdf_pipes.union_all())
-                .geometry.apply(lambda c: (c.x, c.y))
-                .iloc[0])
+    def run_single_producer(producer, gdf_consumers, gdf_pipes, G_undirected):
+        """Run function for a single producer.
 
+        From the perspektive of a given producer, convert an undirected
+        heating network into a directed network downstream towards the
+        consumers.
+        For each pipe segment, determine how many consumers are downstream and
+        calculate a simultaneity factor based on that number.
+        """
     # Get all consumer nodes
+        try:
     consumer_nodes = (gdf_consumers
                       .intersection(gdf_pipes.union_all())
-                      .geometry.apply(lambda c: (c.x, c.y)))
+                              .geometry.apply(lambda c: (c.x, c.y))
+                              )
+        except AttributeError as e:
+            logger.error(e)
+            breakpoint()
+            # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
+            # save_geopackage(gdf_consumers, 'debug_gdf_consumers')
+            # save_geopackage(consumer_nodes, 'debug_gdf_consumers')
 
     # Create directed graph based on shortest paths from producer to consumer.
     # For each consumer, find shortest path from producer and add those edges
@@ -4583,6 +4621,7 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
             continue
 
     if not nx.is_directed_acyclic_graph(G):
+            plot_networkx_graph(G)
         breakpoint()
 
     # Initialize dict to store number of downstream consumers for each node
@@ -4652,16 +4691,13 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
 
             if not matching_nodes.empty:
                 node_data = matching_nodes.iloc[0]
+                    gdf_pipes.loc[idx, "capacity_orig"] = gdf_pipes.loc[idx, "capacity"]
                 gdf_pipes.loc[idx, "simultaneity"] = node_data["simultaneity"]
                 gdf_pipes.loc[idx, "n_consumers"] = node_data["n_consumers"]
+                    gdf_pipes.loc[idx, "capacity_consumers"] = node_data["capacity_consumers"]
                 gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"] = (
                     gdf_pipes.loc[idx, "capacity"]
                     - node_data["capacity_consumers"]
-                    )
-                gdf_pipes.loc[idx, "capacity"] = (
-                    node_data["capacity_consumers"]
-                    * node_data["simultaneity"]
-                    + gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"]
                     )
             else:
                 logger.warning(
@@ -4685,7 +4721,72 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
         )
         save_geopackage(gdf_nodes_missing, 'debug_gdf_nodes_missing')
         save_geopackage(gdf_pipes, 'debug_gdf_pipes')
+
     return gdf_pipes
+
+    # Keep only pipes with capacity > 0
+    gdf_pipes = gdf_pipes[gdf_pipes["capacity"] > 0].copy()
+    # Create undirected graph to find shortest paths
+    G_undirected = momepy.gdf_to_nx(gdf_pipes, approach="primal")
+    # Test for cycles in graph, which would prevent the following from working
+    if not nx.is_forest(G_undirected):
+        plot_networkx_graph(G_undirected)
+        breakpoint()
+        raise ValueError("Graph contains loops/cycles, this is not allowed")
+
+    if len(gdf_producers) > 1:
+        logger.warning("'Deterministic simultaneity' method is only "
+                       "supported for multiple producers, if each "
+                       "is able to supply the whole network.")
+
+    # Get producer node as starting point
+    producer_nodes = (gdf_producers
+                      .intersection(gdf_pipes.union_all())
+                      .geometry.apply(lambda c: (c.x, c.y))
+                      )
+
+    cols_compare = ["simultaneity", "n_consumers", "capacity_consumers",
+                    "capacity_loss_cumsum [kW]", "capacity"]
+    gdf_pipes_list = []
+    for i, producer in enumerate(producer_nodes):
+        gdf_pipes_i = run_single_producer(
+            producer, gdf_consumers, gdf_pipes.copy(), G_undirected)
+
+        if i > 0:
+            gdf_pipes_i = gdf_pipes_i[cols_compare]
+        for column in cols_compare:
+            gdf_pipes_i = gdf_pipes_i.rename(
+                columns={column: f"{column}_{i}"})
+
+        gdf_pipes_list.append(gdf_pipes_i)
+
+    gdf_pipes_return = pd.concat(gdf_pipes_list, axis='columns')
+
+    # Each gdf_pipes in the list represents the condition of the network
+    # from the point of view of one producer. In order to allow supply
+    # to all consumers from all producers, the largest 'capacity_consumers'
+    # has to be detected for each pipe segment. We also store 'n_consumers'
+    # and 'simultaneity' of that case.
+    # The cumulative sum of heat losses of all pipes downstream of a given
+    # pipe ("capacity_loss_cumsum [kW]") also has to be selected from
+    # point of view of the dominating producer, in order
+    # to apply the simultaneity factor only to the 'capacity_consumers', and
+    # update the total 'capacity' as the sum of them.
+    max_idx = np.nanargmax(gdf_pipes_return
+                           .filter(like="capacity_consumers")
+                           .to_numpy(), axis=1)
+
+    for col in cols_compare:
+        gdf_pipes_return[col] = (gdf_pipes_return.filter(like=col).to_numpy()
+                                 [np.arange(len(gdf_pipes_return)), max_idx])
+
+    gdf_pipes_return["capacity"] = (
+        gdf_pipes_return["capacity_consumers"]
+        * gdf_pipes_return["simultaneity"]
+        + gdf_pipes_return["capacity_loss_cumsum [kW]"]
+        )
+
+    return gdf_pipes_return
 
 
 def get_installed_solver(auto_install_cbc=True):
