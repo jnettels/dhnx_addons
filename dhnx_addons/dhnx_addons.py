@@ -4333,7 +4333,18 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                          ext=save_gis_ext)
         save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
 
-    # Save grouped info about pipes
+    df_pipes_agg = calc_pipes_agg(gdf_pipes)
+    df_pipes_stat = calc_pipes_stats(df_pipes_agg)
+
+    if save_path is not None:
+        save_excel(df_pipes_agg, os.path.join(save_path, 'WN_pipes.xlsx'))
+        save_excel(df_pipes_stat, os.path.join(save_path, 'WN_pipes_stat.xlsx'))
+
+    return network, gdf_pipes, df_pipes_agg, df_DN
+
+
+def calc_pipes_agg(gdf_pipes):
+    """Calculate aggregated information about pipes."""
     df_pipes = gdf_pipes.copy()
     df_pipes = df_pipes[df_pipes['DN'] > 0]
     df_pipes.replace({'type': {'DL': 'Verteilleitung',
@@ -4360,15 +4371,25 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                     .groupby(['type', 'DN'])
                     .agg(agg_dict))
 
+    return df_pipes_agg
+
+
+def calc_pipes_stats(df_pipes_agg):
+    """Calculate selected statistical information about pipes."""
     df_pipes_stat = pd.Series(dtype='float')
     df_pipes_stat['Sum length consumer [m]'] = \
         df_pipes_agg.loc['Hausanschlussleitung', 'length'].sum()
     df_pipes_stat['Sum length producer [m]'] = \
         df_pipes_agg.loc['Erzeugerleitung', 'length'].sum()
+    try:
     df_pipes_stat['Sum length distribution [m]'] = \
         df_pipes_agg.loc['Verteilleitung', 'length'].sum()
+    except KeyError:
+        df_pipes_stat['Sum length distribution [m]'] = 0
+
     df_pipes_stat['Sum length [m]'] = df_pipes_agg['length'].sum()
 
+    df_pipes_stat['Sum P_loss [kW]'] = df_pipes_agg['P_loss [kW]'].sum()
     df_pipes_stat['Sum E_loss [MWh]'] = df_pipes_agg['E_loss [MWh]'].sum()
 
     df_pipes_stat['Sum thermal power consumers [kW]'] = (
@@ -4380,7 +4401,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     df_pipes_stat['ratio pipe capacity producer / consumer [-]'] = (
         df_pipes_agg.loc['Erzeugerleitung', 'capacity'].sum()
-        / df_pipes_agg.loc['Hausanschlussleitung', 'capacity'].sum())
+        / df_pipes_stat['Sum thermal power consumers [kW]'])
 
     df_pipes_stat['DN_mean [-]'] = (
         (df_pipes_agg['length']
@@ -4391,36 +4412,12 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         (df_pipes_agg['length'] * df_pipes_agg['U-value [W/mK]']).sum()
         / df_pipes_agg['length'].sum())
 
-    if save_path is not None:
-        save_excel(df_pipes_agg, os.path.join(save_path, 'WN_pipes.xlsx'))
-        save_excel(df_pipes_stat, os.path.join(save_path, 'WN_pipes_stat.xlsx'))
+    # The following assumes that the temperatures for all parts are equal
+    df_pipes_stat['T_forward [°C]'] = df_pipes_agg['T_forward [°C]'].mean()
+    df_pipes_stat['T_return [°C]'] = df_pipes_agg['T_return [°C]'].mean()
+    df_pipes_stat['T_ground [°C]'] = df_pipes_agg['T_ground [°C]'].mean()
 
-    return_dict = {'network': network,
-                   'gdf_pipes': gdf_pipes,
-                   'df_pipes': df_pipes_agg,
-                   'df_DN': df_DN,
-                   }
-
-    class DHNx_Return():
-        """Create an object for storing the return values."""
-        def __init__(self, network, gdf_pipes, df_pipes, df_DN):
-            self.network = network
-            self.gdf_pipes = gdf_pipes
-            self.df_pipes = df_pipes
-            self.df_DN = df_DN
-
-        def __str__(self):
-            return str(self.__class__) + ' containing:\n' + '\n'.join(
-                ('{}:\n{}'
-                 .format(item, self.__dict__[item]) for item in self.__dict__))
-
-    # Package the return values in a dedicated object. Using a dict would
-    # be more straightforward, but caused issues when trying to pickle it.
-    # dhnx_return = DHNx_Return(network, gdf_pipes, df_pipes, df_DN)
-    # Not in use, because this breaks the @memory.cache function.
-
-    # return dhnx_return
-    return network, gdf_pipes, df_pipes, df_DN
+    return df_pipes_stat
 
 
 def re_run_optimization(network, invest_opt, **settings):
