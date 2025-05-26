@@ -4392,8 +4392,8 @@ def calc_pipes_stats(df_pipes_agg):
     df_pipes_stat['Sum length producer [m]'] = \
         df_pipes_agg.loc['Erzeugerleitung', 'length'].sum()
     try:
-    df_pipes_stat['Sum length distribution [m]'] = \
-        df_pipes_agg.loc['Verteilleitung', 'length'].sum()
+        df_pipes_stat['Sum length distribution [m]'] = \
+            df_pipes_agg.loc['Verteilleitung', 'length'].sum()
     except KeyError:
         df_pipes_stat['Sum length distribution [m]'] = 0
 
@@ -4601,10 +4601,10 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
         For each pipe segment, determine how many consumers are downstream and
         calculate a simultaneity factor based on that number.
         """
-    # Get all consumer nodes
+        # Get all consumer nodes
         try:
-    consumer_nodes = (gdf_consumers
-                      .intersection(gdf_pipes.union_all())
+            consumer_nodes = (gdf_consumers
+                              .intersection(gdf_pipes.union_all())
                               .geometry.apply(lambda c: (c.x, c.y))
                               )
         except AttributeError as e:
@@ -4614,125 +4614,125 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
             # save_geopackage(gdf_consumers, 'debug_gdf_consumers')
             # save_geopackage(consumer_nodes, 'debug_gdf_consumers')
 
-    # Create directed graph based on shortest paths from producer to consumer.
-    # For each consumer, find shortest path from producer and add those edges
-    # to the directed graph with correct direction
-    G = nx.DiGraph()
-    for consumer in consumer_nodes:
-        try:
-            path = nx.shortest_path(G_undirected, producer, consumer)
-            # Add edges along path with direction from producer to consumer
-            for i in range(len(path) - 1):
-                G.add_edge(path[i], path[i + 1])
-        except nx.NetworkXNoPath:
-            logger.warning(
-                f"No path found from producer to consumer at {consumer}"
-            )
-            continue
-
-    if not nx.is_directed_acyclic_graph(G):
-            plot_networkx_graph(G)
-        breakpoint()
-
-    # Initialize dict to store number of downstream consumers for each node
-    node_dict = {}
-
-    # For each node, count actual downstream consumers
-    for node in G.nodes():
-        # Get all nodes reachable from this node (downstream)
-        try:
-            descendants = nx.descendants(G, node)
-            if len(descendants) == 0:  # Node has no more descentants
-                descendants = [node]  # Node must be a consumer
-            # Count how many descendants are consumers
-            descendant_consumers = set(descendants) & set(consumer_nodes)
-            n_consumers = len(descendant_consumers)
-
-            gdf_descendant_consumers = gdf_consumers[gdf_consumers.intersects(
-                shapely.MultiPoint(list(descendant_consumers)))]
-
-            # Calculate simultaneity factor based on number of consumers
-            simultaneity = simultaneity_factor(n_consumers)
-
-            node_dict[node] = {
-                "n_consumers": n_consumers,
-                "simultaneity": simultaneity,
-                "capacity_consumers": gdf_descendant_consumers[col_p_th].sum(),
-            }
-        except nx.NetworkXError:
-            continue
-
-    df_nodes = pd.DataFrame.from_dict(node_dict, orient="index")
-    df_nodes.index = df_nodes.index.set_names(["x", "y"])
-    df_nodes = df_nodes.reset_index()
-    gdf_nodes = gpd.GeoDataFrame(
-        geometry=gpd.points_from_xy(df_nodes["x"], df_nodes["y"]),
-        data=df_nodes[["n_consumers", "simultaneity", "capacity_consumers"]],
-        crs=gdf_pipes.crs,
-    )
-
-    # For each pipe, get both endpoints and determine which one is upstream
-    # based on the directed graph structure
-    nodes_missing_x = []
-    nodes_missing_y = []
-    for idx, pipe in gdf_pipes.iterrows():
-        # Get both endpoints
-        node1 = pipe.geometry.coords[0]
-        node2 = pipe.geometry.coords[-1]
-
-        # Check which node is upstream by seeing if one is ancestor of other
-        try:
-            # If node1 can reach node2 through directed graph, it is upstream
-            if nx.has_path(G, node1, node2):
-                downstream_node = node2
-            # Otherwise node2 must be upstream (if pipe is part of valid path)
-            elif nx.has_path(G, node2, node1):
-                downstream_node = node1
-            else:
-                # If neither can reach the other, pipe isn't on a valid path
-                logger.warning(f"Pipe {idx} not on valid path from producer "
-                               "to any consumer")
+        # Create directed graph based on shortest paths from producer to consumer.
+        # For each consumer, find shortest path from producer and add those edges
+        # to the directed graph with correct direction
+        G = nx.DiGraph()
+        for consumer in consumer_nodes:
+            try:
+                path = nx.shortest_path(G_undirected, producer, consumer)
+                # Add edges along path with direction from producer to consumer
+                for i in range(len(path) - 1):
+                    G.add_edge(path[i], path[i + 1])
+            except nx.NetworkXNoPath:
+                logger.warning(
+                    f"No path found from producer to consumer at {consumer}"
+                )
                 continue
 
-            # Find node data for the downstream end of pipe
-            matching_nodes = gdf_nodes[
-                gdf_nodes.intersects(shapely.Point(downstream_node))
-            ]
+        if not nx.is_directed_acyclic_graph(G):
+            plot_networkx_graph(G)
+            breakpoint()
 
-            if not matching_nodes.empty:
-                node_data = matching_nodes.iloc[0]
-                    gdf_pipes.loc[idx, "capacity_orig"] = gdf_pipes.loc[idx, "capacity"]
-                gdf_pipes.loc[idx, "simultaneity"] = node_data["simultaneity"]
-                gdf_pipes.loc[idx, "n_consumers"] = node_data["n_consumers"]
-                    gdf_pipes.loc[idx, "capacity_consumers"] = node_data["capacity_consumers"]
-                gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"] = (
-                    gdf_pipes.loc[idx, "capacity"]
-                    - node_data["capacity_consumers"]
-                    )
-            else:
-                logger.warning(
-                    f"No node data found for upstream end of pipe {idx}"
-                )
+        # Initialize dict to store number of downstream consumers for each node
+        node_dict = {}
 
-        except nx.NetworkXError as e:
-            logger.warning(f"Error processing pipe {idx}: {e}")
-            continue
-        except nx.NodeNotFound as e:
-            logger.warning(f"Error processing pipe {idx}: {e}")
-            for node in [node1, node2]:
-                nodes_missing_x.append(node[0])
-                nodes_missing_y.append(node[1])
-            continue
+        # For each node, count actual downstream consumers
+        for node in G.nodes():
+            # Get all nodes reachable from this node (downstream)
+            try:
+                descendants = nx.descendants(G, node)
+                if len(descendants) == 0:  # Node has no more descentants
+                    descendants = [node]  # Node must be a consumer
+                # Count how many descendants are consumers
+                descendant_consumers = set(descendants) & set(consumer_nodes)
+                n_consumers = len(descendant_consumers)
 
-    if len(nodes_missing_x) > 0 and logger.isEnabledFor(logging.DEBUG):
-        gdf_nodes_missing = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(nodes_missing_x, nodes_missing_y),
+                gdf_descendant_consumers = gdf_consumers[gdf_consumers.intersects(
+                    shapely.MultiPoint(list(descendant_consumers)))]
+
+                # Calculate simultaneity factor based on number of consumers
+                simultaneity = simultaneity_factor(n_consumers)
+
+                node_dict[node] = {
+                    "n_consumers": n_consumers,
+                    "simultaneity": simultaneity,
+                    "capacity_consumers": gdf_descendant_consumers[col_p_th].sum(),
+                }
+            except nx.NetworkXError:
+                continue
+
+        df_nodes = pd.DataFrame.from_dict(node_dict, orient="index")
+        df_nodes.index = df_nodes.index.set_names(["x", "y"])
+        df_nodes = df_nodes.reset_index()
+        gdf_nodes = gpd.GeoDataFrame(
+            geometry=gpd.points_from_xy(df_nodes["x"], df_nodes["y"]),
+            data=df_nodes[["n_consumers", "simultaneity", "capacity_consumers"]],
             crs=gdf_pipes.crs,
         )
-        save_geopackage(gdf_nodes_missing, 'debug_gdf_nodes_missing')
-        save_geopackage(gdf_pipes, 'debug_gdf_pipes')
 
-    return gdf_pipes
+        # For each pipe, get both endpoints and determine which one is upstream
+        # based on the directed graph structure
+        nodes_missing_x = []
+        nodes_missing_y = []
+        for idx, pipe in gdf_pipes.iterrows():
+            # Get both endpoints
+            node1 = pipe.geometry.coords[0]
+            node2 = pipe.geometry.coords[-1]
+
+            # Check which node is upstream by seeing if one is ancestor of other
+            try:
+                # If node1 can reach node2 through directed graph, it is upstream
+                if nx.has_path(G, node1, node2):
+                    downstream_node = node2
+                # Otherwise node2 must be upstream (if pipe is part of valid path)
+                elif nx.has_path(G, node2, node1):
+                    downstream_node = node1
+                else:
+                    # If neither can reach the other, pipe isn't on a valid path
+                    logger.warning(f"Pipe {idx} not on valid path from producer "
+                                   "to any consumer")
+                    continue
+
+                # Find node data for the downstream end of pipe
+                matching_nodes = gdf_nodes[
+                    gdf_nodes.intersects(shapely.Point(downstream_node))
+                ]
+
+                if not matching_nodes.empty:
+                    node_data = matching_nodes.iloc[0]
+                    gdf_pipes.loc[idx, "capacity_orig"] = gdf_pipes.loc[idx, "capacity"]
+                    gdf_pipes.loc[idx, "simultaneity"] = node_data["simultaneity"]
+                    gdf_pipes.loc[idx, "n_consumers"] = node_data["n_consumers"]
+                    gdf_pipes.loc[idx, "capacity_consumers"] = node_data["capacity_consumers"]
+                    gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"] = (
+                        gdf_pipes.loc[idx, "capacity"]
+                        - node_data["capacity_consumers"]
+                        )
+                else:
+                    logger.warning(
+                        f"No node data found for upstream end of pipe {idx}"
+                    )
+
+            except nx.NetworkXError as e:
+                logger.warning(f"Error processing pipe {idx}: {e}")
+                continue
+            except nx.NodeNotFound as e:
+                logger.warning(f"Error processing pipe {idx}: {e}")
+                for node in [node1, node2]:
+                    nodes_missing_x.append(node[0])
+                    nodes_missing_y.append(node[1])
+                continue
+
+        if len(nodes_missing_x) > 0 and logger.isEnabledFor(logging.DEBUG):
+            gdf_nodes_missing = gpd.GeoDataFrame(
+                geometry=gpd.points_from_xy(nodes_missing_x, nodes_missing_y),
+                crs=gdf_pipes.crs,
+            )
+            save_geopackage(gdf_nodes_missing, 'debug_gdf_nodes_missing')
+            save_geopackage(gdf_pipes, 'debug_gdf_pipes')
+
+        return gdf_pipes
 
     # Keep only pipes with capacity > 0
     gdf_pipes = gdf_pipes[gdf_pipes["capacity"] > 0].copy()
