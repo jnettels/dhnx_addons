@@ -2813,7 +2813,7 @@ def combine_buildings_and_parcels(
 
 def make_geographic_selection(
         buildings, gdf_selection, col_candidates=None, show_plot=False,
-        drop=False, warn_empty=True):
+        drop=False, warn_empty=True, method='within'):
     """Make a geographic selection of buildings.
 
     In column 'col_candidates' of GeoDataFrame 'buildings', only those within
@@ -2832,8 +2832,8 @@ def make_geographic_selection(
             crs=gdf_selection.crs)
 
     # "Within" only works if both gdf share the same coordinate reference
-    gdf_selection.to_crs(crs=buildings.crs, inplace=True)
-    mask1 = buildings.within(gdf_selection.geometry.iloc[0])
+    gdf_selection = gdf_selection.to_crs(crs=buildings.crs)
+    mask1 = getattr(buildings, method)(gdf_selection.geometry.iloc[0])
     n_dropped = mask1.value_counts().get(False, default=0)
     n_remain = mask1.value_counts().get(True, default=0)
     logger.info('Buildings discarded by area selection: %s', n_dropped)
