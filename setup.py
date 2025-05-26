@@ -76,6 +76,7 @@ setup(
     ],
     extras_require={},
     packages=['dhnx_addons'],
-    package_data={},
+    package_data={'dhnx_addons': ['input/alkis_to_bdew.csv'],
+                  },
     entry_points={},
 )
