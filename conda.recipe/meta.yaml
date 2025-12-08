@@ -28,7 +28,7 @@ requirements:
         # dhnx_addons dependencies
         - python
         - pandas
-        - numpy <2.0  # required by pandapower<3.0
+        - numpy >=2.0
         - numba
         - geopandas
         - matplotlib
@@ -49,7 +49,7 @@ requirements:
         - joblib
 
         # From channel jnettels
-        - lpagg >=0.18.0
+        - lpagg >=0.19
 
         # dhnx/oemof dependencies:
         - PyUtilib
@@ -59,8 +59,9 @@ requirements:
         - dill
         - nose
 
-        # pandapipes dependencies
+        # pandapipes/pandapower dependencies
         - deepdiff
+        - geojson
 
         # The following dependencies are installed via pip
         # They are listed here only for reference

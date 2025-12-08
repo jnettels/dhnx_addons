@@ -4964,7 +4964,7 @@ label_2,active,excess,shortage,shortage costs,excess costs
 heat,1,0,0,999999,9999
 """
     consumers_demand = """
-label_2,active,nominal_value
+label_2,active,nominal_capacity
 heat,1,1
 """
     producers_bus = """
@@ -5220,9 +5220,9 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                    ):
     r"""Run pandapipes simulation with result network from dhnx.
 
-    While DHNx uses a thermal transmittance (U-value) in unit W/mK for
+    While DHNx uses a thermal transmittance (U-value) in unit W/(m*K) for
     heat loss calcultion, pandapipes requires a heat transfer coefficient
-    input 'alpha_w_per_m2k'
+    input 'u_w_per_m2k' [W/(m^2*K)].
 
     U-value as given by pipe manufacturers typically describes the W of
     thermal loss per m pipe length and K temperature difference between mean
@@ -5274,7 +5274,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
         ext_temp = df_DN['T_ground [°C]'].values[0] + 273.15  # K
 
     # Calculate heat transfer coefficient for pandapipes (see docstring above)
-    df_DN["alpha [W/m2K]"] = df_DN['U-value [W/mK]'].div(
+    df_DN["u [W/m2K]"] = df_DN['U-value [W/mK]'].div(
         df_DN['Inner diameter [m]'] * math.pi * f_length_loss)
 
     # Get required physical properties of water
@@ -5355,7 +5355,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Add data of technical data sheet with the DN numbers to the pipes table
     cols_select = ["Inner diameter [m]", "Roughness [mm]",
-                   "U-value [W/mK]", "alpha [W/m2K]"]
+                   "U-value [W/mK]", "u [W/m2K]"]
     cols_select = [col for col in cols_select if col not in pipes.columns]
     if len(cols_select) > 0:
         cols_select.append("DN")
@@ -5470,7 +5470,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             length_km=pipe['length'] / 1000,  # convert to km
             diameter_m=pipe["Inner diameter [m]"],
             k_mm=pipe["Roughness [mm]"],
-            alpha_w_per_m2k=pipe["alpha [W/m2K]"],
+            u_w_per_m2k=pipe["u [W/m2K]"],
             text_k=ext_temp,
             name=pipe[idx_name],
         )
@@ -5502,7 +5502,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                 columns=[idx_name, 'type', 'from_node', 'to_node', 'length',
                          'capacity', 'Cost [€]', 'P_loss [kW]',
                          "Inner diameter [m]", "Roughness [mm]",
-                         'U-value [W/mK]', "alpha [W/m2K]", 'DN']
+                         'U-value [W/mK]', "u [W/m2K]", 'DN']
             )
             pp_net.res_pipe.to_excel(writer, sheet_name='pandapipes_pipes')
             pp_net.res_junction.to_excel(writer,
