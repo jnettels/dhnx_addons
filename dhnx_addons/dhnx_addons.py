@@ -164,6 +164,7 @@ import locale
 import warnings
 from joblib import Memory
 from packaging.version import parse
+import scipy
 import numpy as np
 import shapely
 if parse(shapely.__version__) >= parse("2.0"):
@@ -371,6 +372,7 @@ def workflow_example_openstreetmap(
     gdf_houses, df_load_ts_slice, lpagg_cfg = lpagg_run(
         gdf_houses,
         sigma=3,
+        # simultaneity_fit_sigma=True,
         E_th_col='e_th_total_kWh',
         result_folder='./result_lpagg',
         print_file='load.dat',
@@ -455,6 +457,9 @@ def workflow_example_openstreetmap(
         show_plot=show_plot,
         # path_invest_data='invest_data',
         # path_pipe_data="input/Pipe_data.csv",
+        linearization_strategy="single_segment",
+        # linearization_strategy="multi_segment",
+        # linearization_strategy="discrete",
         # df_load_ts_slice=df_load_ts_slice,  # Use thermal power time series
         # col_p_th=None,  # Column name for (static) thermal power
         col_p_th='P_heat_max',  # Column name for (static) thermal power
@@ -4488,6 +4493,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              path_invest_data=None,  # 'invest_data',
              path_pipe_data=None,  # "input/Pipe_data.csv",
              pipe_data_sheet_name=0,
+             linearization_strategy="single_segment",
              df_load_ts_slice=None,
              col_p_th='P_heat_max',
              bidirectional_pipes=False,
@@ -4500,6 +4506,10 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              solver=None,
              solve_kw={'tee': True},  # print solver output
              solver_cmdline_options=None,
+             T_FF=80,
+             T_RF=50,
+             T_ground=10,
+             dP_max=150,
              ):
     """Run the dhnx (district heating networks) process.
 
@@ -4711,15 +4721,15 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Create or overwrite the input file "invest_data/network/pipes.csv"
     # Create pipe data table from manufacturer data
-    df_DN, constants_costs, constants_loss = (
-        calc_lineralized_pipe_input(
-            path_pipe_data=path_pipe_data,
-            pipe_data_sheet_name=pipe_data_sheet_name,
-            T_FF=80, T_RF=50, T_ground=10, dP_max=150,
-            show_plot=show_plot))
+    df_DN = get_pipe_input_data(
+        path_pipe_data=path_pipe_data,
+        pipe_data_sheet_name=pipe_data_sheet_name,
+        T_FF=T_FF, T_RF=T_RF, T_ground=T_ground, dP_max=dP_max,
+        show_plot=show_plot)
     # Export the linearized form required by DHNx
-    df_invest_opt_pipes = export_lineralized_pipe_input(
-        df_DN, constants_costs, constants_loss, path_invest_data)
+    df_invest_opt_pipes = lineralize_pipe_input(
+        df_DN, linearization_strategy=linearization_strategy,
+        path_invest_data=path_invest_data, show_plot=show_plot)
     if save_path is not None:
         save_excel(df_DN, os.path.join(save_path, 'DN_table.xlsx'))
 
@@ -4960,8 +4970,7 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
 
     results_edges = network.results.optimization['components']['pipes']
     gdf_pipes = network.components['pipes'].copy()
-    gdf_pipes = gdf_pipes[results_edges["capacity"] > lim_capacity]
-
+    gdf_pipes = gdf_pipes[results_edges["capacity"] > 0]
     G = momepy.gdf_to_nx(gdf_pipes, approach="primal")
 
     if not nx.is_connected(G):
@@ -4977,6 +4986,8 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
         logger.warning("Optimization result network contains cycles. Run "
                        "again with previous result as starting point, after "
                        f"keeping only pipes with capacity>{lim_capacity} kW.")
+
+        gdf_pipes = gdf_pipes[results_edges["capacity"] > lim_capacity]
         # Use the previous result as the input, then re-run the optimization
         network.components['pipes'] = gdf_pipes
         if settings["solver"] == 'gurobi':
@@ -5331,7 +5342,7 @@ def get_installed_solver(auto_install_cbc=True):
 # Section "DHNX Postprocessing"
 # Use these functions on results from DHNX
 
-def calc_lineralized_pipe_input(
+def get_pipe_input_data(
         path_pipe_data="input/Pipe_data.csv",
         pipe_data_sheet_name=0,
         T_FF=80, T_RF=50, T_ground=10, dP_max=150,
@@ -5358,17 +5369,18 @@ def calc_lineralized_pipe_input(
     # is based on a maximum pressure drop per meter as design criteria:
     # You could also define the maximum pressure drop individually for each DN
     # number.
-    if "Max delta p [Pa/m]" not in df.columns:
+    if dP_max is not None:
         df["Max delta p [Pa/m]"] = dP_max
 
     # As further assumptions, you need to estimate the operation temperatures
     # of the district heating network in the design case:
-    if "T_forward [°C]" not in df.columns:
+    if T_FF is not None:
         df["T_forward [°C]"] = T_FF
-    if "T_return [°C]" not in df.columns:
+    if T_RF is not None:
         df["T_return [°C]"] = T_RF
-    if "T_ground [°C]" not in df.columns:
+    if T_ground is not None:
         df["T_ground [°C]"] = T_ground
+
     df['T_mean [°C]'] = df[['T_forward [°C]', 'T_return [°C]']].mean(
         axis='columns')
 
@@ -5385,72 +5397,161 @@ def calc_lineralized_pipe_input(
     # Now the maximum power capacity can be calculated
     df = calc_pipes_p_max(df)
 
-    # The last step is the linearisation of the cost and loss parameter for
-    # the DHNx optimisation (which is based on the MILP optimisation package
-    # oemof-solph)
+    return df
 
-    # It is possible to use different accuracies: you could linearize the cost
-    # and loss values with 1 segment, or many segment, or you can also perform
-    # an optimisation with discrete DN numbers (which is of course
-    # computationally more expensive).
-    # See also the DHNx example "discrete_DN_numbers"
 
+def lineralize_pipe_input(
+        df,
+        linearization_strategy="single_segment",
+        path_invest_data='invest_data',
+        f_smoothing_cost=1e5,
+        f_smoothing_loss=1e-4,
+        show_plot=False):
+    """Linearize the pipe cost and heat loss input data.
+
+    Export the pipes investment options to the expected location.
+
+    This step is the linearisation of the cost and loss parameter for
+    the DHNx optimisation (which is based on the MILP optimisation package
+    oemof-solph)
+
+    It is possible to use different accuracies: you can linearize the cost
+    and loss values with a single segment or multiple segments, or you
+    can also perform an optimisation with discrete DN numbers (which is
+    of course computationally more expensive).
+    See also the DHNx example "discrete_DN_numbers".
+
+    """
     # Here follows a linear approximation with 1 segment
-    constants_costs = np.polyfit(df['P_max [kW]'], df['Costs [€/m]'], 1)
-    constants_loss = np.polyfit(df['P_max [kW]'], df['P_loss [kW/m]'], 1)
+    if linearization_strategy == "single_segment":
+        constants_costs = np.polyfit(df['P_max [kW]'], df['Costs [€/m]'], 1)
+        constants_loss = np.polyfit(df['P_max [kW]'], df['P_loss [kW/m]'], 1)
+
+        # See DHNx documentation for details about these settings.
+        df_invest_opt_pipes = pd.DataFrame({
+            "label_3": "pipe-generic",
+            "active": 1,
+            "nonconvex": 1,
+            "l_factor": constants_loss[0],
+            "l_factor_fix": constants_loss[1],
+            "cap_max": df['P_max [kW]'].max(),
+            "cap_min": min(1, df['P_max [kW]'].min()),  # 1 kW or smallest DN
+            "capex_pipes": constants_costs[0],
+            "fix_costs": constants_costs[1],
+            }, index=[0],
+            )
+
+    elif linearization_strategy == "multi_segment":
+        # TODO replace with scipy.interpolate.make_splrep()
+        spl_cost = scipy.interpolate.UnivariateSpline(
+            df['P_max [kW]'], df['Costs [€/m]'], k=1, s=f_smoothing_cost)
+        spl_loss = scipy.interpolate.UnivariateSpline(
+            df['P_max [kW]'], df['P_loss [kW/m]'], k=1, s=f_smoothing_loss)
+
+        # Determine which of the linear splines has more knots and
+        # use that to define the number of resulting segments
+        knots_cost = spl_cost.get_knots()
+        knots_loss = spl_loss.get_knots()
+        knots = knots_cost if len(knots_cost) > len(knots_loss) else knots_loss
+
+        values_cost = spl_cost(knots)  # Spline y-values at knots
+        values_loss = spl_loss(knots)  # Spline y-values at knots
+        values = values_loss
+
+        segments = []
+        for i in range(len(knots) - 1):
+            if i == 0:
+                x0 = 1   # 1 kW capacity minimum for smallest pipe segment
+            else:
+                x0 = knots[i]
+            x1 = knots[i+1]
+            y0_cost, y1_cost = values_cost[i], values_cost[i+1]
+            y0_loss, y1_loss = values_loss[i], values_loss[i+1]
+
+            # get slope and intersect for each segment for cost function
+            a_cost = (y1_cost - y0_cost) / (x1 - x0)
+            b_cost = y0_cost - a_cost * x0
+
+            # get slope and intersect for each segment for loss function
+            a_loss = (y1_loss - y0_loss) / (x1 - x0)
+            b_loss = y0_loss - a_loss * x0
+            segments.append((x0, x1, a_cost, b_cost, a_loss, b_loss))
+
+        df_invest_opt_pipes = pd.DataFrame(
+            data=segments,
+            columns=['cap_min', 'cap_max',
+                     'capex_pipes', 'fix_costs',
+                     'l_factor', 'l_factor_fix'])
+
+        df_invest_opt_pipes['active'] = 1
+        df_invest_opt_pipes['nonconvex'] = 1
+        df_invest_opt_pipes['label_3'] = [
+            'pipe_linearized_{}'.format(i)
+            for i in range(len(df_invest_opt_pipes))]
+
+    elif linearization_strategy == "discrete":
+        df_invest_opt_pipes = df[
+            ['DN', 'Costs [€/m]', 'P_max [kW]', 'P_loss [kW/m]']]
+        df_invest_opt_pipes = df_invest_opt_pipes.rename(
+            columns={'DN': 'label_3',
+                     'Costs [€/m]': 'fix_costs',
+                     'P_max [kW]': 'cap_max',
+                     'P_loss [kW/m]': 'l_factor_fix',
+                     })
+        df_invest_opt_pipes['cap_min'] = df_invest_opt_pipes['cap_max'] -1
+        df_invest_opt_pipes['l_factor'] = 0
+        df_invest_opt_pipes['capex_pipes'] = 0
+        df_invest_opt_pipes['active'] = 1
+        df_invest_opt_pipes['nonconvex'] = 1
+        df_invest_opt_pipes['label_3'] = [
+            'DN_{}'.format(i) for i in df_invest_opt_pipes['label_3']]
+
+    else:
+        raise ValueError(f"Linearization strategy {linearization_strategy} "
+                         "not defined")
+
+    # Sort DataFrame columns in a defined order
+    df_invest_opt_pipes = df_invest_opt_pipes[[
+        'label_3', 'active', 'nonconvex', 'l_factor', 'l_factor_fix',
+        'cap_min', 'cap_max', 'capex_pipes', 'fix_costs',
+        ]]
 
     if show_plot:
-        # Plot the economic assumptions:
-        for constants, col_y in zip(
-                [constants_costs, constants_loss],
-                ["Costs [€/m]", 'P_loss [kW/m]']
+        # Plot the linearization results:
+        for col_y, cols_lin in zip(
+                ["Costs [€/m]", 'P_loss [kW/m]'],
+                [['cap_min', 'cap_max', 'capex_pipes', 'fix_costs'],
+                 ['cap_min', 'cap_max', 'l_factor', 'l_factor_fix']],
                 ):
-            x_min = df['P_max [kW]'].min()
-            x_max = df['P_max [kW]'].max()
-            y_min = constants[0] * x_min + constants[1]
-            y_max = constants[0] * x_max + constants[1]
-
             _, ax = plt.subplots()
             x = df['P_max [kW]']
             y = df[col_y]
             ax.plot(x, y, lw=0, marker="o", label="DN numbers",)
-            ax.plot(
-                [x_min, x_max], [y_min, y_max],
-                ls=":", color='r', marker="x"
-            )
+
+            if linearization_strategy == "multi_segment":
+                if col_y == "Costs [€/m]":
+                    spl = spl_cost
+                if col_y == 'P_loss [kW/m]':
+                    spl = spl_loss
+                ax.plot(x, spl(x), linestyle='--', label="Spline",)
+
+            # Plot each segment
+            for i, (x0, x1, a, b) in df_invest_opt_pipes[cols_lin].iterrows():
+                x_segment = np.linspace(x0, x1, 100)
+                y_segment = a * x_segment + b
+                ax.plot(x_segment, y_segment, color='blue', linestyle='--')
+
             ax.set_xlabel("Transport capacity [kW]")
             ax.set_ylabel(col_y)
             plt.title(
                 "Linear approximation of {} in district heating \n"
                 "pipelines based on maximum pressure drop "
-                "of {:.0f} Pa/m".format(col_y, df["Max delta p [Pa/m]"][0])
+                "of {:.0f} Pa/m".format(col_y, df["Max delta p [Pa/m]"].mean())
             )
             plt.legend()
             plt.ylim(0, None)
             plt.grid(ls=":")
             plt.show()
-
-    return df, constants_costs, constants_loss
-
-
-def export_lineralized_pipe_input(df, constants_costs, constants_loss,
-                                  path_invest_data='invest_data'):
-    """Create and export the pipes investment options to the expected location.
-
-    See DHNx documentation for details about these settings.
-    """
-    df_invest_opt_pipes = pd.DataFrame({
-        "label_3": "pipe-generic",
-        "active": 1,
-        "nonconvex": 1,
-        "l_factor": constants_loss[0],
-        "l_factor_fix": constants_loss[1],
-        "cap_max": df['P_max [kW]'].max(),
-        "cap_min": min(1, df['P_max [kW]'].min()),  # 1 kW or smallest DN
-        "capex_pipes": constants_costs[0],
-        "fix_costs": constants_costs[1],
-        }, index=[0],
-    )
 
     if path_invest_data is not None:
         # Export the optimisation parameter of the dhs pipelines to the
