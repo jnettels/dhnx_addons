@@ -1781,6 +1781,77 @@ def load_src_data_arge_refurbishmend_probabilities():
     return df
 
 
+def assign_arge_refurbishment_reverse(
+        gdf,
+        col_spec_total='e_th_spec_total',
+        col_building_type='building_type',
+        col_refurbished_state_reverse='refurbished_state_reverse',
+        col_construction_year='construction_year',
+        aliases_SFH=None,
+        aliases_MFH=None,
+        eta=0.85,
+        ):
+    """Perform a reverse assignment of refurbished states in source ARGE.
+
+    Each building is assigned a refurbished_state based on its type,
+    construction year and which bracket of energy demand values it falls into.
+    """
+    df = load_src_data_arge_heat_demand()
+    df = process_src_data_arge(
+        df, col_construction_year, [col_building_type, col_refurbished_state_reverse],
+        col_spec_total, aliases_SFH=aliases_SFH, aliases_MFH=aliases_MFH)
+    # Convert from final energy to net energy demand:
+    df = df * eta
+
+    # Pivot to wide format: thresholds per (building_type, year)
+    df_wide = df.unstack(col_refurbished_state_reverse)
+    df_wide = df_wide.sort_index(axis=1)   # ensure states are ordered
+
+    # Join thresholds into gdf
+    merged = gdf[[col_building_type, col_construction_year,
+                  col_spec_total]].merge(
+        df_wide,
+        how="left",
+        left_on=[col_building_type, col_construction_year],
+        right_index=True,
+    )
+
+    # Extract threshold matrix (values only)
+    states = df_wide.columns.tolist()
+    thresholds = merged[states].to_numpy()
+
+    # Get energy consumption values to classify
+    values = merged[col_spec_total].to_numpy()
+
+    # Count how many thresholds each value passed
+    mask = values[:, None] <= thresholds  #
+    idx = mask.sum(axis=1)
+
+    # The mapping from idx (number of thresholds passed) to label:
+    # 3: 'mostly refurbised'
+    # 2: 'slightly refurbised'
+    # 1: 'not refurbised'
+    # 0: 'not refurbised'
+
+    # Map index back to refurbishment state
+    labels = np.array(states)
+    # Clip idx into valid range
+    idx = np.clip(idx-1, 0, len(labels)-1)
+    chosen = labels[idx]
+
+    # Assign back to gdf
+    merged[col_refurbished_state_reverse] = chosen
+
+    # Remove refurbished state for buildings with no energy consumption
+    merged.loc[merged[col_spec_total] == 0,
+               col_refurbished_state_reverse] = np.nan
+
+    # Store result in the returned DataFrame
+    gdf[col_refurbished_state_reverse] = merged[col_refurbished_state_reverse]
+
+    return gdf
+
+
 def set_heat_demand_for_new_buildings(
         df,
         col_heated='heated',
