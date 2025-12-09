@@ -367,7 +367,7 @@ def workflow_example_openstreetmap(
 
     # Run "load profile aggregator" to get maximum thermal load for buildings
     # lpagg_run.clear()  # Clear cached results
-    gdf_houses, df_load_ts_slice = lpagg_run(
+    gdf_houses, df_load_ts_slice, lpagg_cfg = lpagg_run(
         gdf_houses,
         sigma=3,
         E_th_col='e_th_total_kWh',
@@ -5959,7 +5959,7 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     df_lpagg = df_lpagg[cols_keep]
 
     # Set some more columns:
-    df_lpagg['Q_Kalt_a'] = None  # Cooling is not used
+    # df_lpagg['Q_Kalt_a'] = None  # Cooling is not used
     df_lpagg['copies'] = 1  # Each building is only considered once (no copies)
     df_lpagg['sigma'] = sigma  # Standard deviation for simultaneity shift
 
@@ -6117,7 +6117,7 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
             show_plot=show_plot,
             )
 
-    return gdf, df_load_ts_slice
+    return gdf, df_load_ts_slice, cfg
 
 
 def lpagg_get_max_power_slice(df_load_ts, buffer=0, show_plot=True):
