@@ -187,6 +187,11 @@ try:
 except ImportError:
     import cbc_installer  # local import for running dhnx_addons.py
 
+try:
+    from . import elevation  # local import
+except ImportError:
+    import elevation  # local import for running dhnx_addons.py
+
 logger = logging.getLogger(__name__)  # Create a logger for this module
 
 # Define a memory to be used as a decorator, which enables caching for
@@ -475,12 +480,11 @@ def workflow_example_openstreetmap(
     # as an input for the thermal power of each consumer
     p_pipes, p_forks, p_consumers, p_producers = pandapipes_run(
         network, gdf_pipes, df_DN, show_plot=show_plot,
+        elevation_col='height_m',
+        download_missing_elevation=True,
         # P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.sum(axis=1).idxmax()],
         P_th_kW=network.components['consumers']['P_heat_max']*0.5,
         )
-
-    # Download the elevation data for the current area
-    download_elevation_data(gdf_houses, show_plot=show_plot)
 
 
 def workflow_default(buildings, show_plot=True):
@@ -5215,6 +5219,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                    pressure_net=12,  # [bar] (Pressure at the heat supply)
                    pressure_pn=20,  # [bar] The nominal pressure (used as initial value)
                    elevation_col=None,
+                   download_missing_elevation=False,
                    direction='forward',
                    **kwargs,
                    ):
@@ -5294,9 +5299,15 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
         forks[elevation_col] = 0
         consumers[elevation_col] = 0
         producers[elevation_col] = 0
-    else:  # Perform test for missing values
-        for df_test in [forks, consumers, producers]:
-            if df_test[elevation_col].isna().any():
+    else:  # Download elevation data and perform test for missing values
+        for _df in [forks, consumers, producers]:
+            if elevation_col not in _df:
+                if download_missing_elevation:
+                    df_elev = elevation.download_elevation_data(
+                        _df, col_elevation=elevation_col,
+                        show_plot=show_plot)
+                    _df[elevation_col] = df_elev[elevation_col]
+            if _df[elevation_col].isna().any():
                 logger.error("Height information from column '%s' has "
                              "missing values", elevation_col)
 
@@ -5541,6 +5552,13 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     forks_p_min = forks.loc[[forks['p_bar'].idxmin()]]
     forks_t_min = forks.loc[[forks['t_°C'].idxmin()]]
 
+    # Calculate additional attributes
+    pipes['vdot_m3_per_s_abs'] = pipes['vdot_m3_per_s'].abs()
+    pipes['vdot_m3_per_h_abs'] = pipes['vdot_m3_per_s_abs']*3600
+    pipes['v_mean_m_per_s_abs'] = pipes['v_mean_m_per_s'].abs()
+    pipes['delta_p_Pa/m'] = (
+        pipes['p_from_bar']-pipes['p_to_bar']).abs() / (pipes.length * 1e-5)
+
     # Plot the results of pandapipes simulation
     if show_plot:
         # Plot pressure of pipes' ending nodes
@@ -5566,6 +5584,23 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             # save_path=os.path.join(save_path, 'plots', 'Pressure'),
             )
 
+        plot_geometries(
+            [consumers, producers, pipes],
+            plt_kwargs=[dict(label='Consumer', color='green'),
+                        dict(label='Producer',
+                             color=matplotlib.colormaps['cividis'](1.0)),
+                        dict(column='delta_p_Pa/m', linewidth=2, legend=True,
+                             label='Pipelines',
+                             cmap='cividis',
+                             legend_kwds={'label': 'Pressure loss [Pa/m]'}),
+                        ],
+            # plot_basemap=True,
+            title='Pressure loss',
+            set_axis_off=True,
+            dpi=300,
+            # save_path=os.path.join(save_path, 'plots', 'Pressure loss'),
+            )
+
         # Plot temperature of pipes' ending nodes
         plot_geometries(
             [consumers,
@@ -5585,11 +5620,11 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             # plot_basemap=True,
             title='Temperature distribution',
             set_axis_off=True,
-            dpi=300)
+            dpi=300,
+            # save_path=os.path.join(save_path, 'plots', 'Temperature'),
+            )
 
         # Plot volume flow rate per pipe segment
-        pipes['vdot_m3_per_s_abs'] = pipes['vdot_m3_per_s'].abs()
-        pipes['vdot_m3_per_h_abs'] = pipes['vdot_m3_per_s_abs']*3600
         plot_geometries(
             [consumers,
              producers,
@@ -5604,10 +5639,11 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             # plot_basemap=True,
             title='Flow rate distribution',
             set_axis_off=True,
-            dpi=300)
+            dpi=300,
+            # save_path=os.path.join(save_path, 'plots', 'Flow rate'),
+            )
 
         # Plot volume flow velocity per pipe segment
-        pipes['v_mean_m_per_s_abs'] = pipes['v_mean_m_per_s'].abs()
         plot_geometries(
             [consumers,
              producers,
@@ -5622,7 +5658,9 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
             # plot_basemap=True,
             title='Velocity distribution',
             set_axis_off=True,
-            dpi=300)
+            dpi=300,
+            # save_path=os.path.join(save_path, 'plots', 'Velocity'),
+            )
 
         # Find and plot pressure along shorest path from start to point with
         # lowest pressure
@@ -5640,6 +5678,8 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                          legend_kwds=dict(label='Pressure [bar]')),],
                 title='Pressure distribution to point of minimum pressure',
                 set_axis_off=True,
+                # save_path=os.path.join(save_path, 'plots',
+                #                        'Pressure (shortest path)'),
                 )
 
     if save_path is not None:
@@ -6081,96 +6121,6 @@ def lpagg_merge_houses_and_load(
                  df_houses[E_th_col].sum()/1000)
 
     return df_houses
-
-
-def download_elevation_data(
-        gdf, crs=None, ext='geotiff', path='./cache/wms_dgm200_inspire',
-        show_plot=False):
-    """Download elevation data for a region defined by the bounds of gdf.
-
-    Returns:
-        gdf_elevation (geopandas GeoDataFrame): A GeoDataFrame containing the
-        elevation data as raster.
-    """
-    import rasterio
-    from rasterio.features import shapes
-    from owslib.wms import WebMapService
-
-    if crs is None:
-        crs = gdf.crs
-
-    # Connect to the WebMapService
-    url = 'https://sgx.geodatenzentrum.de/wms_dgm200_inspire'
-    wms = WebMapService(url, version='1.3.0')
-
-    # Specify the layer and style, by reading it from the source
-    layer = list(wms.contents)[0]  # 'EL.GridCoverage'
-    style = list(wms[layer].styles.keys())[0]  # 'default'
-
-    if crs not in wms[layer].crsOptions:
-        crs_fallback = 'EPSG:4326'  # WGS 84
-        logger.warning("Selected CRS '%s' not supported, using '%s' instead",
-                       crs, crs_fallback)
-        crs = crs_fallback
-
-    # Convert polygon to a bounding box
-    bbox = gdf.to_crs(crs).geometry.total_bounds
-
-    # Calculate the width and height of the bounding box in meters
-    bbox_m = gdf.to_crs('EPSG:25832').geometry.total_bounds
-    width_m = bbox_m[2] - bbox_m[0]
-    height_m = bbox_m[3] - bbox_m[1]
-
-    # Calculate the number of pixels in each dimension
-    # Data source has a resolution of 200m, so to be save use 100m
-    size = (int(round(width_m / 100, 0)), int(round(height_m / 100, 0)))
-
-    # Other available information
-    # wms.identification.type
-    # list(wms.contents)
-    # wms[layer].boundingBoxWGS84
-
-    # Select the image format from the given file extension
-    format_ = 'image/'+ext
-    if format_ not in wms.getOperationByName('GetMap').formatOptions:
-        logger.warning("Extension '%s' not supported", ext)
-
-    # Make the request
-    logger.debug("Downloading: %s", wms.identification.title)
-    response = wms.getmap(layers=[layer], styles=[style], bbox=bbox,
-                          srs=str(crs), format=format_,
-                          size=size, transparent=True)
-
-    # Write the response to a file
-    filepath = path + '.' + ext
-    logger.info("Saving downloaded elevation data to %s", filepath)
-    if not os.path.exists(os.path.dirname(filepath)):
-        os.makedirs(os.path.dirname(filepath))
-    with open(filepath, 'wb') as f:
-        f.write(response.read())
-
-    # Open the file with rasterio and plot it
-    with rasterio.open(filepath) as src:
-        image = src.read(1)  # read the image
-
-    # Create a GeoDataFrame from the results
-    results = (
-        {'properties': {'raster_val': v}, 'geometry': s}
-        for i, (s, v) in enumerate(shapes(image, transform=src.transform))
-        )
-    gdf_elevation = gpd.GeoDataFrame.from_features(list(results), crs=crs)
-
-    if show_plot:
-        plot_geometries([gdf_elevation, gdf],
-                        plt_kwargs=[
-                            dict(column='raster_val', legend=True,
-                                 legend_kwds=dict(label='Elevation [m]')),
-                            dict(label='Area', alpha=0.5)],
-                        title='Elevation data',
-                        set_axis_off=True,
-                        )
-
-    return gdf_elevation
 
 
 # Section with experimental / broken functions
