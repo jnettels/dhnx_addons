@@ -181,6 +181,7 @@ from inspect import signature
 import yaml
 import networkx as nx
 import momepy
+import requests
 
 try:
     from . import cbc_installer  # local import
@@ -218,13 +219,13 @@ except ImportError as e:
                    "'conda install tobler>=0.8.0 -c conda-forge'")
 try:
     import dhnx
-    if parse(dhnx.__version__) < parse("0.0.3"):
+    if parse(dhnx.__version__) < parse("0.0.4"):
         raise ImportError(f"Installed dhnx version ({dhnx.__version__}"
-                          ") is lower than the tested version (0.0.3)")
+                          ") is lower than the tested version (0.0.4)")
 except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'dhnx' can be installed with "
-                   "pip install dhnx==0.0.3")
+                   "pip install dhnx==0.0.4")
 
 try:
     import contextily
@@ -698,6 +699,8 @@ def save_gis_generic(gdf, file, ext=None, driver=None, path='.', crs=None,
             save_gis_generic(
                 gdf, file, ext=ext, driver=driver, path=path, crs=crs,
                 type_errors='raise', save_excel=save_excel, **kwargs)
+        elif type_errors == 'raise':
+            raise e
     else:  # Execute when there is no error
         if save_excel:
             _save_excel(gdf, os.path.join(path, file+'.xlsx'))
@@ -1388,7 +1391,7 @@ def building_type_from_osm(
                             col_building_osm].value_counts()
         if not undefined.empty:
             logger.warning("During assignment of general building types from "
-                           "OpenStreetMap types, the following tags where "
+                           "OpenStreetMap types, the following tags were "
                            "found to be undefined. Consider updating "
                            "building_type_from_osm() with appropriate "
                            "assignments:\n%s", undefined)
@@ -2099,7 +2102,7 @@ def set_domestic_hot_water_from_DIN18599(
 
     if col_heated is not None:
         # Set heat demand of non-heated buildings to zero
-        df.loc[df[col_heated] == False, col_spec_DHW] = 0
+        df.loc[df[col_heated].isin([False]), col_spec_DHW] = 0
 
     df[col_DHW] = (df[col_spec_DHW] * df['a_NRF']).round(decimals)
 
@@ -2246,7 +2249,7 @@ def calculate_avg_level_height(
         #    1) Group by building type and year first, then create a fit
         #       through that data. This does not take into account the count
         #       of each class, which could be used as a weight. I.e. the mean
-        #       of a  class with 1000 entries should be more reliable that
+        #       of a  class with 1000 entries should be more reliable than
         #       one with only 100 entries. However, this allows to simply
         #       drop classes below a certain count that is not deemed
         #       representative
@@ -2795,6 +2798,7 @@ def join_area_interpolate(gdf_target, gdf_source,
                           intensive_variables=None,
                           extensive_variables=None,
                           categorical_variables=None,
+                          allocate_total=True,
                           n_jobs=1,
                           ):
     """Join columns from gdf_source with gdf_target via area interpolation.
@@ -2815,9 +2819,19 @@ def join_area_interpolate(gdf_target, gdf_source,
         gdf_source (gdf): Source GeoDataFrame
 
         intensive_variables : list, optional
-            Columns in DataFrame for intensive variables. An average is calculated.
+            Columns in DataFrame for intensive variables. An average is
+            calculated. However, the average calculation for each target
+            polygon is weighted with the areas of the source polygons.
+            Say you e.g. use the mean age of all inhabitants in a building
+            as an intensive variable. If each building had the same polygon
+            area, the resulting average would be the 'regular' mean value.
+            If the polygon area differs, the contribution of each building
+            to the mean is weighted with its area. For each use case, it
+            needs to be decided if this is the desired bevaviour.
+
         extensive_variables : TYPE, optional
-            Columns in DataFrame for extensive variables. These will be summed up.
+            Columns in DataFrame for extensive variables. These will be
+            summed up.
 
     Returns:
         gdf_target (gdf): GeoDataFrame with joined variables as new columns
@@ -2831,7 +2845,7 @@ def join_area_interpolate(gdf_target, gdf_source,
         intensive_variables=intensive_variables,
         extensive_variables=extensive_variables,
         categorical_variables=categorical_variables,
-        allocate_total=True,
+        allocate_total=allocate_total,
         n_jobs=n_jobs,
         )
     # Keep index name
@@ -3250,7 +3264,8 @@ def merge_with_test(df1, df2, on, find_closest_matches=False):
 
             def search_match(row):
                 """For the given row, find the closest match in df1."""
-                highest = fuzzywuzzy_process.extractOne(row[on], df1[on])
+                highest = fuzzywuzzy_process.extractOne(str(row[on]),
+                                                        df1[on].astype(str))
                 return pd.Series([highest[0], highest[1]])  # match and score
 
             df_missing[['match', 'score']] = df_missing.apply(search_match,
@@ -3474,7 +3489,12 @@ def add_basemap(ax, crs, provider='OSM'):
     else:
         source = contextily.providers.OpenStreetMap.Mapnik
 
-    contextily.add_basemap(ax=ax, source=source, crs=crs)
+    try:
+        contextily.add_basemap(ax=ax, source=source, crs=crs)
+    except requests.exceptions.HTTPError as e:
+        # Ignore extremely rare cases of HTTP errors
+        logger.warning(e)
+
     return ax
 
 
@@ -3944,7 +3964,7 @@ def plot_geometries(
     They are converted to a common crs. If taking the crs of the first
     entry in gdf_list fails, 'crs_default' is used instead.
 
-    plt_args : list
+    plt_kwargs : list
         List of dictionaries for each gdf in gdf_list, with arguments to
         hand over to each gdf.plot() call.
     """
@@ -3971,7 +3991,10 @@ def plot_geometries(
         if not (isinstance(gdf, gpd.GeoDataFrame)
                 or isinstance(gdf, gpd.GeoSeries)):
             # Assume that this is a shapely geometry that can be converted
-            gdf = gpd.GeoDataFrame(geometry=[gdf], crs=crs_default)
+            gdf = gpd.GeoDataFrame(geometry=[gdf], crs=crs_use)
+
+        if gdf.crs is None:
+            gdf = gpd.GeoDataFrame(geometry=gdf, crs=crs_use)
 
         if 'column' not in args.keys():
             # gdf.plot() accepts only one of 'color' and 'column'
@@ -4621,7 +4644,7 @@ def plot_simultaneity_factor(
             kwargs.setdefault("marker", "x")
             ax.plot(_x, _y, **kwargs)
 
-    x = np.arange(n_max)
+    x = np.arange(n_max + 1)
     y = simultaneity_factor(x)
     ax.plot(x, y, label=txt_label_dist)
     ax.set_xlabel(txt_xlabel)
