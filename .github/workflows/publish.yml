@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.10"]
+        python-version: ["3.13"]
 
     steps:
     - name: Checkout
@@ -34,8 +34,8 @@ jobs:
       shell: pwsh  # Needed where conda env is used
       run: |
         # Login to anaconda (answer the resulting prompt with yes)
-        echo y | anaconda login --username ${{ secrets.ANACONDA_USERNAME }} --password ${{ secrets.ANACONDA_PASSWORD }} --hostname "GitHub_dhnx_addons_${{ matrix.os }}_${{ matrix.python-version }}"
+        echo y | anaconda org login --username ${{ secrets.ANACONDA_USERNAME }} --password ${{ secrets.ANACONDA_PASSWORD }} --hostname "GitHub_dhnx_addons_${{ matrix.os }}_${{ matrix.python-version }}"
         # Enable automatic upload to anaconda.org
         conda config --set anaconda_upload yes
         # Run build process
-        conda build conda.recipe -c conda-forge -c jnettels
+        conda build conda.recipe -c conda-forge -c jnettels -c defaults
