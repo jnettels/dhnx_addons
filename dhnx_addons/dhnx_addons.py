@@ -4449,7 +4449,17 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     df_pipes_agg = calc_pipes_agg(gdf_pipes)
     df_pipes_stat = calc_pipes_stats(df_pipes_agg)
 
+    # Add pipe capacity results to producers, to store required thermal
+    # capacity per producer
+    network.components['producers'] = network.components['producers'].join(
+        gdf_pipes[['id_full', 'capacity']].groupby('id_full').sum(),
+        on='id_full')
+
     if save_path is not None:
+        save_gis_generic(network.components['producers'],
+                         file='producers', path=save_path,
+                         ext=save_gis_ext, type_errors='coerce')
+
         save_excel(df_pipes_agg, os.path.join(save_path, 'WN_pipes.xlsx'))
         save_excel(df_pipes_stat, os.path.join(save_path, 'WN_pipes_stat.xlsx'))
 
