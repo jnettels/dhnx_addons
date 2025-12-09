@@ -556,6 +556,11 @@ def load_example_area(crs='epsg:4647'):
             (9.1090996, 54.1906397),
             (9.1027474, 54.1895923),
             ]
+    bbox = [(9.1017468, 54.1937087),
+            (9.1063300, 54.1943006),
+            (9.1090996, 54.1906397),
+            (9.1027474, 54.1895923),
+            ]
     polygon = shapely.geometry.Polygon(bbox)
     gdf_polygon = gpd.GeoDataFrame(geometry=[polygon], crs='epsg:4326')
 
