@@ -2203,6 +2203,401 @@ def separate_heating_and_DHW(
     return df
 
 
+def calculate_energy_renovation_from_KWW(
+        gdf, col_total='e_th_total_kWh', col_n_living_units=None,
+        overwrite_fPW=None):
+    """Calulate energy renovation values from source KWW.
+
+    Source:
+
+        Technikkatalog (Langreder et al. 2024, im Auftrag des BMWK)
+
+        Langreder, Nora; Lettow, Frederik; Sahnoun, Malek; Kreidelmeyer, Sven;
+        Wünsch, Aurel; Lengning, Saskia et al. (2024): Technikkatalog Wärmeplanung.
+        Hg. v. ifeu Institut für Energie- und Umweltforschung Heidelberg,
+        Öko-Institut e.V., IER Stuttgart, adelphi consult GmbH,
+        Becker Büttner Held PartGmbB, Prognos AG, et al., im Auftrag des BMWK.
+
+        Online verfügbar unter
+        https://www.kww-halle.de/praxis-kommunale-waermewende/bundesgesetz-zur-waermeplanung
+
+    - Read the source data from the "KWW Technikkatalog"
+    - Assign the KWP data the KWW categories (sector, branch, age class)
+    - Merge the matching data
+    """
+    def get_age_bins_and_labels(df_renovation, level='KWW Baualtersklasse'):
+        age_labels = df_renovation.index.unique(level)
+
+        age_bins = []
+        for lbl in age_labels:
+            # Case "bis 1918"
+            if lbl.startswith("bis"):
+                year = int(re.search(r"\d+", lbl).group())
+                age_bins.extend([year])
+            elif lbl.startswith("ab"):
+                year = int(re.search(r"\d+", lbl).group())
+                age_bins.extend([2045])
+            else:
+                start, end = map(int, re.findall(r"\d+", lbl))
+                # Only add end (start already covered by previous bin)
+                age_bins.append(end)
+
+        ages = pd.DataFrame([age_bins, age_labels]).T
+        ages = ages.sort_values(0)
+
+        age_bins = [0]
+        age_bins.extend(ages[0].values)
+        age_labels = ages[1]
+
+        return age_bins, age_labels
+
+    df_renovation = load_KWW_technikkatalog_renovation_data(
+        overwrite_fPW=overwrite_fPW)
+
+    gdf = assign_KWW_types_from_osm(gdf, col_n_living_units=col_n_living_units)
+    gdf.loc[~gdf['heated'], ['KWW Sektor', 'KWW Branche']] = np.nan
+
+    gdf.value_counts('KWW Branche')
+
+    # Single-family homes
+    mask = (gdf['heated'] & gdf['KWW Branche'].isin(['EFH']))
+    age_bins, age_labels = get_age_bins_and_labels(
+        df_renovation.xs('EFH', level='KWW Branche'))
+    gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
+        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        ).astype(str)
+
+    # Multi-family homes
+    mask = (gdf['heated'] & gdf['KWW Branche'].isin(['MFH']))
+    age_bins, age_labels = get_age_bins_and_labels(
+        df_renovation.xs('MFH', level='KWW Branche'))
+    gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
+        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        ).astype(str)
+
+    # Industry
+    mask = (gdf['heated'] & gdf['KWW Sektor'].isin(['Industrie']))
+    age_bins, age_labels = get_age_bins_and_labels(
+        df_renovation.xs('Industrie', level='KWW Sektor'))
+    gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
+        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        ).astype(str)
+
+    # Trades, commerce, services (Gewerbe, Handel, Dienstleistungen)
+    mask = (gdf['heated'] & gdf['KWW Sektor'].isin(['GHD']))
+    age_bins, age_labels = get_age_bins_and_labels(
+        df_renovation.xs('GHD', level='KWW Sektor'))
+    gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
+        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        ).astype(str)
+
+    # Now that all merge columns are assigned to all building types,
+    # perform the merge from existing data and Technikkatalog
+    gdf = pd.merge(
+        left=gdf, right=df_renovation,
+        left_on=['KWW Sektor', 'KWW Branche', 'KWW Baualtersklasse'],
+        right_index=True,
+        how='left',
+        )
+
+    # Calculate absolute energy values from the area-specific values
+    # in the Technikkatalog
+    for energy in ['total', 'RW', 'WW', 'PW']:
+        for year in ['now']:
+            gdf[f'KWW_E_th_{energy}_{year}'] = (
+                gdf[f'KWW_E_th_spec_{energy}_{year}'] * gdf['a_N']
+                )
+        for year in ['2045']:
+            for scenario in ['hoch', 'niedrig']:
+                gdf[f'KWW_E_th_{energy}_{year}_{scenario}'] = (
+                    gdf[f'KWW_E_th_spec_{energy}_{year}_{scenario}']
+                    * gdf['a_N']
+                    )
+
+    gdf = apply_energy_renovation_from_KWW_to_reference(
+        gdf, col_total=col_total)
+
+    return gdf
+
+
+def apply_energy_renovation_from_KWW_to_reference(
+        gdf, year=2045, col_total='e_th_total_kWh'):
+
+    e_total_year_low = f'E_th_total_{year}_niedrig'
+    e_total_year_high = f'E_th_total_{year}_hoch'
+    potential_year_low = f'KWW_Sanierungspotenzial_rel_{year}_niedrig'
+    potential_year_high = f'KWW_Sanierungspotenzial_rel_{year}_hoch'
+
+    # Break for cases where total energy is larger than 0 but KWW is not
+    mask = (gdf[col_total] > 0) & ~(gdf['KWW_E_th_total_now'] > 0)
+    mask.any()
+    test = gdf.loc[mask].drop(columns='geometry')
+
+    if len(test) > 0:
+        logger.warning(f"{len(test)} buildings have an energy value in "
+                       f"'{col_total}', but are not assigned to KWW data.")
+
+    # Calculate the estimated total energy in the target year based on the
+    # reduction factors
+    gdf[e_total_year_low] = (
+        gdf[col_total]
+        * (1 + (gdf['KWW mittlere jährliche Reduktion um_niedrig']
+                * (int(year) - 2022))).fillna(1)
+        )
+    gdf[e_total_year_high] = (
+        gdf[col_total]
+        * (1 + (gdf['KWW mittlere jährliche Reduktion um_hoch']
+                * (int(year) - 2022))).fillna(1)
+        )
+
+    # Analyze the relative energy saving potential
+    gdf[potential_year_low] = (gdf[e_total_year_low] / gdf[col_total]
+                               ).clip(lower=0, upper=1)
+    gdf[potential_year_high] = (gdf[e_total_year_high] / gdf[col_total]
+                                ).clip(lower=0, upper=1)
+
+    test = gdf.loc[
+        (gdf[e_total_year_high] / gdf[col_total]) > 1.0001
+        ].drop(columns='geometry')
+
+    logger.warning(f"{len(test)} Gebäude hätten nach der Sanierung laut KWW "
+                   "einen höheren Energiebedarf als im Ist-Zustand...")
+
+    return gdf
+
+
+def assign_KWW_types_from_osm(
+        gdf,
+        col_building_osm='osm_building',
+        col_kww_branch='KWW Branche',
+        col_kww_sector='KWW Sektor',
+        col_heated=None,
+        col_n_living_units=None,
+        warn_undefined=True,
+        ):
+    branch_dict = {
+        # Haushalte
+        'EFH': ['house', 'residential', 'detached', 'semidetached_house',
+                'terrace', 'farm', 'bungalow', 'villa',
+                ],
+        'MFH': ['apartments', 'dormitory'],
+
+        # Industrie
+        'Nahrungsmittelgewerbe': ['brewery'],
+        'Herstellungsbetriebe': [],
+        'Industrie': ['industrial', 'warehouse', 'fire_station',],
+
+        # GHD
+        'Krankenhäuser': ['hospital', ],
+        'Wäschereien': [],
+        'Beherbergung, Gastsstätten, Heime':
+            ['restaurant', 'hotel', 'hostel', 'kindergarten', 'religious',
+             'church', 'cathedral', 'presbytery', 'mosque',],
+        'Kultur':
+            ['museum', ],
+        'Sport': ['sports_hall', 'sports_centre', 'stadium', ],
+        'Bildung': ['school', 'college', 'university', 'education'],
+        'Büroähnliche Betriebe':
+            ['commercial', 'office', 'government', 'civic', 'public',
+             'guardhouse',],
+        'Handel': ['retail', 'supermarket', 'shop',],
+        'Landwirtschaft': [],
+        'Textil, Bekleidung, Spedition': [],
+        'Baugewerbe': [],
+        'Nicht zugeordnet':
+            ['roof', 'tower', 'hangar', 'train_station', 'bridge', 'barn',
+             'cemetery', 'mast', 'garage', 'garages',
+             'chapel', 'parking', 'castle', 'hut', 'silo', 'storage_tank',
+             'greenhouse', 'water_tower', 'grandstand', 'roof',
+             'shed', 'service', 'carport', 'farm_auxiliary', 'construction',
+             'toilets', 'bunker', 'disused', 'ruins', 'allotment_house',
+             'no', 'kiosk', 'hall', 'electricity', 'chimney', 'container',
+             'substation', 'lighthouse', 'ship', 'shelter', 'roof_terrace',
+             'stable',
+             ],
+        }
+
+    sector_dict = {
+        'EFH': ['EFH'],
+        'MFH': ['MFH'],
+        'GHD':
+            ['Baugewerbe', 'Beherbergung, Gastsstätten, Heime', 'Bildung',
+             'Büroähnliche Betriebe', 'Handel', 'Krankenhäuser', 'Kultur',
+             'Landwirtschaft', 'Sport', 'Textil, Bekleidung, Spedition',
+             'Wäschereien'],
+        'Industrie':
+            ['Herstellungsbetriebe', 'Industrie', 'Nahrungsmittelgewerbe'],
+        }
+
+    # Match appropriate branches of building types from OpenStreetMap keys
+    # to KWW definitions.
+    # However, these are not always precise. E.g. detached or semidetached
+    # houses can be either single or multi-family homes
+    for b_type, b_list in branch_dict.items():
+        gdf.loc[gdf[col_building_osm].isin(b_list), col_kww_branch] = b_type
+
+    # If number of living units per building is defined as a column name,
+    # update single and multi-family-home branch entries
+    if col_n_living_units is not None:
+        mask_sfh = ((gdf[col_n_living_units] >= 1)
+                    & (gdf[col_n_living_units] <= 2)
+                    & gdf[col_kww_branch].isin(['MFH'])
+                    )
+        mask_mfh = ((gdf[col_n_living_units] > 2)
+                    & gdf[col_kww_branch].isin(['EFH'])
+                    )
+
+        gdf.loc[mask_sfh, col_kww_branch] = 'EFH'
+        gdf.loc[mask_mfh, col_kww_branch] = 'MFH'
+
+    if col_heated is not None:
+        # Buildings that are not declared as heated do not receive a category
+        gdf.loc[~gdf[col_heated].isin([True]), col_kww_branch] = np.nan
+
+    # Match KWW building branches to the correct sector
+    for b_type, b_list in sector_dict.items():
+        gdf.loc[gdf[col_kww_branch].isin(b_list), col_kww_sector] = b_type
+
+    if warn_undefined:
+        undefined = gdf.loc[gdf[col_kww_branch].isna(),
+                            col_building_osm].value_counts()
+        if not undefined.empty:
+            logger.warning("During assignment of KWW building types from "
+                           "OpenStreetMap types, the following tags were "
+                           "found to be undefined. Consider updating "
+                           "assign_KWW_types_from_osm() with appropriate "
+                           "assignments:\n%s", undefined)
+
+    return gdf
+
+
+def load_KWW_technikkatalog_renovation_data(overwrite_fPW=None):
+    file = "Technikkatalog_Wärmeplanung_Version_1.1_August24_CC-BY.xlsx"
+    path = os.path.join(os.path.dirname(__file__), 'input', file)
+
+    def read_sheet(**kwargs):
+        df = pd.read_excel(path, **kwargs)
+        df.index = df.index.set_names(
+            ['KWW Baualtersklasse', 'KWW Pfad', 'Einheit'])
+
+        df = df.rename(columns={
+            'Reduktion bis 2045 auf': 'Reduktion bis 2045 auf (rel)',
+            'Reduktion bis 2045 auf.1': 'Reduktion bis 2045 auf (abs)'})
+
+        df['Status Quo'] = df['Status Quo'].ffill()
+        return df
+
+    def add_branches(df, **kwargs):
+        df_branches = pd.read_excel(path, **kwargs).T
+        df_branches.index = df_branches.index.set_names(['KWW Branche'])
+
+        df_branches = df_branches.rename(index={
+            'Nahrungsmittel-gewerbe': 'Nahrungsmittelgewerbe',
+            'Herstellungs-betriebe': 'Herstellungsbetriebe'})
+
+        # Redefine the factors, such that they all refer to the same base value
+        df_branches['Warmwasserfaktor  (fWW)'] *= \
+            df_branches['Branchenfaktor (fB)']
+        df_branches['Prozesswärmefaktor (fPW)'] *= \
+            df_branches['Branchenfaktor (fB)']
+
+        # Validate the redefinition of the factors
+        assert (
+            df_branches[
+                ['Branchenfaktor (fB)', 'Warmwasserfaktor  (fWW)',
+                 'Prozesswärmefaktor (fPW)']
+                ].sum(axis=1).round(2).equals(
+                    df_branches['Branchenkorrekturfaktor Gesamt (fG)'])
+            )
+
+        if overwrite_fPW is not None:
+            df_branches['Prozesswärmefaktor (fPW)'] = overwrite_fPW
+
+        df = df.reset_index().merge(df_branches.reset_index(), how='cross')
+        df = df.set_index(['KWW Branche', 'KWW Baualtersklasse', 'KWW Pfad',
+                           'Einheit'])
+
+        for col in ['Status Quo', 'Reduktion bis 2045 auf (abs)']:
+            df[f'{col} RW'] = df[col] * df['Branchenfaktor (fB)']
+            df[f'{col} WW'] = df[col] * df['Warmwasserfaktor  (fWW)']
+            df[f'{col} PW'] = df[col] * df['Prozesswärmefaktor (fPW)']
+            df[f'{col}'] = df[[f'{col} RW', f'{col} WW', f'{col} PW']
+                              ].sum(axis=1)
+
+        df = df.sort_index()
+
+        df = df.drop(columns=[
+            'Branchenfaktor (fB)', 'Warmwasserfaktor  (fWW)',
+            'Prozesswärmefaktor (fPW)', 'Branchenkorrekturfaktor Gesamt (fG)'])
+
+        return df
+
+    # Single-family homes
+    df_sfh = read_sheet(sheet_name='Tab 55', skiprows=6, usecols='B:H',
+                        index_col=[0, 1, 2], skipfooter=8)
+
+    # Multi-family homes
+    df_mfh = read_sheet(sheet_name='Tab 56', skiprows=6,
+                        usecols='B:H', index_col=[0, 1, 2], skipfooter=8)
+
+    # Industry
+    df_industry = read_sheet(sheet_name='Tab 54', skiprows=5, usecols='B:H',
+                             index_col=[0, 1, 2], skipfooter=14)
+    df_industry = add_branches(df_industry, sheet_name='Tab 54', skiprows=13,
+                               usecols='J:M', index_col=[0], skipfooter=8)
+
+    # Trades, commerce, services (Gewerbe, Handel, Dienstleistungen)
+    df_ghd = read_sheet(sheet_name='Tab 53', skiprows=5,
+                        usecols='B:H', index_col=[0, 1, 2], skipfooter=14)
+
+    df_ghd = add_branches(df_ghd, sheet_name='Tab 53', skiprows=13,
+                          usecols='J:U', index_col=[0], skipfooter=8)
+
+    df = pd.concat([
+        pd.concat([df_sfh], keys=['EFH'], names=['KWW Branche']),
+        pd.concat([df_mfh], keys=['MFH'], names=['KWW Branche']),
+        df_ghd,
+        df_industry,
+        ],
+        keys=['EFH', 'MFH', 'GHD', 'Industrie'],
+        names=['KWW Sektor'])
+
+    df = df.droplevel('Einheit')
+
+    df = df.rename(columns={
+        'Status Quo': 'KWW_E_th_spec_total_now',
+        'mittlere jährliche Reduktion um':
+            'KWW mittlere jährliche Reduktion um',
+        'Reduktion bis 2045 auf (rel)': 'KWW Reduktion bis 2045 auf (rel)',
+        'Reduktion bis 2045 auf (abs)': 'KWW_E_th_spec_total_2045',
+        'Status Quo RW': 'KWW_E_th_spec_RW_now',
+        'Status Quo WW': 'KWW_E_th_spec_WW_now',
+        'Status Quo PW': 'KWW_E_th_spec_PW_now',
+        'Reduktion bis 2045 auf (abs) RW': 'KWW_E_th_spec_RW_2045',
+        'Reduktion bis 2045 auf (abs) WW': 'KWW_E_th_spec_WW_2045',
+        'Reduktion bis 2045 auf (abs) PW': 'KWW_E_th_spec_PW_2045',
+        })
+
+    df_2045 = df[['KWW mittlere jährliche Reduktion um',
+                  'KWW Reduktion bis 2045 auf (rel)',
+                  'KWW_E_th_spec_total_2045',
+                  'KWW_E_th_spec_RW_2045',
+                  'KWW_E_th_spec_WW_2045',
+                  'KWW_E_th_spec_PW_2045']]
+    df_2045 = df_2045.unstack('KWW Pfad')
+    df_2045 = df_2045.sort_index(axis='columns', level='KWW Pfad')
+    df_2045.columns = [
+        '_'.join(x) for x in df_2045.columns.to_flat_index().values]
+
+    df_now = df[['KWW_E_th_spec_total_now', 'KWW_E_th_spec_RW_now',
+                 'KWW_E_th_spec_WW_now', 'KWW_E_th_spec_PW_now',]]
+    df_now = df_now.xs('niedrig', level='KWW Pfad')
+
+    df = pd.concat([df_now, df_2045], axis='columns')
+
+    return df
+
+
 def calculate_avg_level_height(
         gdf, col_height, col_levels=['building:levels', 'roof:levels'],
         col_level_height=None, height_min=2, kind='single_mean',
