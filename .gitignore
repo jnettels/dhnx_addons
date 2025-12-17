@@ -16,6 +16,7 @@ dist/
 *.pickle
 *.yaml
 *.code-workspace
+*.gpkg
 
 dhnx_addons/invest_data/network/pipes.csv
 
