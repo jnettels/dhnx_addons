@@ -479,12 +479,19 @@ def workflow_example_openstreetmap(
     # the time of overall maximum thermal power demand in df_load_ts_slice
     # or the maximum thermal power multiplied with a simultaneity factor
     # as an input for the thermal power of each consumer
+    df_sf = pd.DataFrame.from_dict(lpagg_cfg.get(
+        'simultaneity_factor_results', dict()), orient='index')
+    if not df_sf.empty:
+        sf_lpagg = df_sf.loc['GLF', 'th']
+    else:
+        sf_lpagg = 1
+
     p_pipes, p_forks, p_consumers, p_producers = pandapipes_run(
         network, gdf_pipes, df_DN, show_plot=show_plot,
         elevation_col='height_m',
         download_missing_elevation=True,
         # P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.sum(axis=1).idxmax()],
-        P_th_kW=network.components['consumers']['P_heat_max']*0.5,
+        P_th_kW=network.components['consumers']['P_heat_max']*sf_lpagg,
         )
 
 
