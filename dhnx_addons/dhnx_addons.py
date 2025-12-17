@@ -5000,6 +5000,31 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
     return
 
 
+def copy_dhnx_network(network):
+    """Create a 'useful' copy of the ThermalNetwork object.
+
+    We would be able to call new_network = copy.copy(network) on a network
+    object. But then the DataFrames inside the network.components dictionary
+    would not actually be copied. Instead both instances of the dict would
+    point to the same DataFrames. (This is called a shallow copy.)
+    This is bad if we want to manipulate the DataFrames but keep a backup
+    of the whole network to restore later.
+    Until a proper __copy__() method is implemented in dhnx, this function
+    solves such use cases.
+    """
+    new_network = dhnx.network.ThermalNetwork()
+    new_network.components = dhnx.helpers.Dict({
+        key: df.copy() for key, df in network.components.items()
+    })
+    new_network.sequences = network.sequences.copy()
+    new_network.results = network.results.copy()
+    if network.timeindex is not None:
+        new_network.timeindex = network.timeindex.copy()
+    if network.graph is not None:
+        new_network.graph = network.graph.copy()
+    return new_network
+
+
 def simultaneity_factor(n, decimals=5):
     """Calculate simultaneity factor based on number of consumers n.
 
