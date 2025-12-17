@@ -28,7 +28,9 @@ requirements:
         # dhnx_addons dependencies
         - python
         - pandas
+        - pyyaml
         - numpy >=2.0
+        # - scipy <1.16  # in case of issues with tobler
         - numba
         - geopandas
         - matplotlib
@@ -37,7 +39,6 @@ requirements:
         - coolprop
         - fiona
         - gdal >=3.7  # Fix for CityGML
-        - rasterio
         - tobler
         - h3-py
         - contextily
@@ -45,7 +46,6 @@ requirements:
         - shapely >=2.0
         - openpyxl
         - fuzzywuzzy
-        - owslib
         - joblib
 
         # From channel jnettels

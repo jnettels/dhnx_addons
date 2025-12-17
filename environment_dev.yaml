@@ -37,7 +37,9 @@ dependencies:
     - python
     - pip
     - pandas
+    - pyyaml
     - numpy >=2.0
+    # - scipy <1.16  # in case of issues with tobler
     - numba
     - geopandas >=1.0
     - matplotlib
@@ -46,7 +48,6 @@ dependencies:
     - coolprop
     - fiona
     - gdal >=3.7  # Fix for CityGML
-    - rasterio
     - tobler
     - h3-py
     - contextily
@@ -54,8 +55,8 @@ dependencies:
     - shapely >=2.0
     - openpyxl
     - fuzzywuzzy
-    - owslib
     - joblib
+    - mapclassify
 
     # From channel jnettels
     - lpagg >=0.19
@@ -78,4 +79,4 @@ dependencies:
         - oemof.solph >=0.6
         - demandlib >=0.2.2
         - pandapipes >=0.12
-        - pandapower <3.2
+        - pandapower <3.2  # https://github.com/e2nIEE/pandapipes/issues/770
