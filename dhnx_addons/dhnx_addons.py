@@ -1825,10 +1825,9 @@ def assign_arge_refurbishment_reverse(
     # Join thresholds into gdf
     merged = gdf[[col_building_type, col_construction_year,
                   col_spec_total]].merge(
-        df_wide,
+        df_wide.reset_index(),
         how="left",
-        left_on=[col_building_type, col_construction_year],
-        right_index=True,
+        on=[col_building_type, col_construction_year],
     )
 
     # Extract threshold matrix (values only)
