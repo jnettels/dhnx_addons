@@ -6414,7 +6414,7 @@ def find_TRY_regions(gdf, show_plot=False, buffer=2000, col_try='try_code'):
     return gdf
 
 
-def find_country_code(gdf):
+def find_country_code(gdf, country_default='DE'):
     """Get the codes of country and province as input for holidays module.
 
     This service requires an internet connection.
@@ -6427,6 +6427,10 @@ def find_country_code(gdf):
         The centroid of the convex hull of all geometries in the input
         GeoDataFrame is used as the location for which to receive the
         codes of country and province.
+
+    country_default : str, optional
+        The default country code to use if the lookup fails.
+        The default is 'DE'.
 
     Returns
     -------
@@ -6443,9 +6447,10 @@ def find_country_code(gdf):
         country_dict = {'country': country_code[0:2],
                         'province': country_code[3:5]}
     except Exception as e:
-        logger.error("Finding the country code failed, using Germany instead.")
+        logger.error("Finding the country code failed, using default '%s' instead.",
+                     country_default)
         logger.error(e)
-        country_dict = {'country': 'DE', 'province': None}
+        country_dict = {'country': country_default, 'province': None}
 
     return country_dict
 
