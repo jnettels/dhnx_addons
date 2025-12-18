@@ -4505,6 +4505,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              method='midpoint',
              welding=True,
              solver=None,
+             allow_nonoptimal=True,  # Allow non-optimal solutions
              solve_kw={'tee': True},  # print solver output
              solver_cmdline_options=None,
              T_FF=80,
@@ -4601,6 +4602,14 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         Name of the solver used by dhnx, e.g. 'cbc' or 'gurobi'.
         If None, try to find an installed solver or install cbc.
         Default is None.
+    allow_nonoptimal : bool
+        Set whether non-optimal solutions of the solver are allowed. Sometimes
+        the solver finds a feasible solution, but cannot find the optimal
+        solution within its time limit. These non-optimal solutions may e.g.
+        contain loops. If ``True``, this gives the opportunity to handle
+        such cases in dhnx_addons, e.g. with ``re_run_optimization()``.
+        If ``False``, an exception will cause the program to abort.
+        Default is True.
     solve_kw : dict, optional
         Special keywords used for the solver. {'tee': True}, prints the solver
         output to the console, while {'tee': False} hides it.
@@ -4781,6 +4790,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         solver_cmdline_options=solver_cmdline_options,
         bidirectional_pipes=bidirectional_pipes,
         simultaneity=simultaneity,
+        allow_nonoptimal=allow_nonoptimal,
         )
     if df_load_ts_slice is not None:
         settings["heat_demand"] = "series"
