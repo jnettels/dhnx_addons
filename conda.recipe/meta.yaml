@@ -38,7 +38,6 @@ requirements:
         - momepy
         - coolprop
         - fiona
-        - gdal >=3.7  # Fix for CityGML
         - tobler
         - h3-py
         - contextily
@@ -47,6 +46,7 @@ requirements:
         - openpyxl
         - fuzzywuzzy
         - joblib
+        - mapclassify
 
         # From channel jnettels
         - lpagg >=0.19

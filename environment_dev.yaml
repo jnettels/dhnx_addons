@@ -47,7 +47,6 @@ dependencies:
     - momepy
     - coolprop
     - fiona
-    - gdal >=3.7  # Fix for CityGML
     - tobler
     - h3-py
     - contextily
