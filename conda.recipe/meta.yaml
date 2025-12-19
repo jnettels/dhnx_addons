@@ -36,32 +36,32 @@ requirements:
         - matplotlib
         - osmnx >=1.9.4
         - momepy
-        - coolprop
-        - fiona
-        - gdal >=3.7  # Fix for CityGML
-        - tobler
-        - h3-py
-        - contextily
-        - libpysal
-        - shapely >=2.0
-        - openpyxl
-        - fuzzywuzzy
-        - joblib
+        #- coolprop
+        #- fiona
+        #- gdal >=3.7  # Fix for CityGML
+        #- tobler
+        #- h3-py
+        #- contextily
+        #- libpysal
+        #- shapely >=2.0
+        #- openpyxl
+        #- fuzzywuzzy
+        #- joblib
 
         # From channel jnettels
-        - lpagg >=0.19
+        # - lpagg >=0.19
 
         # dhnx/oemof dependencies:
-        - PyUtilib
-        - Pyomo >=6.8.0
-        - addict
-        - blinker
-        - dill
-        - nose
+        #- PyUtilib
+        #- Pyomo >=6.8.0
+        #- addict
+        #- blinker
+        #- dill
+        #- nose
 
         # pandapipes/pandapower dependencies
-        - deepdiff
-        - geojson
+        #- deepdiff
+        #- geojson
 
         # The following dependencies are installed via pip
         # They are listed here only for reference
