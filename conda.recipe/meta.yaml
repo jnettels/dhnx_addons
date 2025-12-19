@@ -61,7 +61,7 @@ requirements:
 
         # pandapipes/pandapower dependencies
         - deepdiff
-        #- geojson
+        - geojson
 
         # The following dependencies are installed via pip
         # They are listed here only for reference
