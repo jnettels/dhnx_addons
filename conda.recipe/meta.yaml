@@ -43,10 +43,10 @@ requirements:
         - h3-py
         - contextily
         - libpysal
-        #- shapely >=2.0
-        #- openpyxl
-        #- fuzzywuzzy
-        #- joblib
+        - shapely >=2.0
+        - openpyxl
+        - fuzzywuzzy
+        - joblib
 
         # From channel jnettels
         # - lpagg >=0.19
