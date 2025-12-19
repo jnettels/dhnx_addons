@@ -85,4 +85,4 @@ jobs:
     - name: Build with conda
       shell: pwsh  # Needed where conda env is used
       run: |
-        conda build conda.recipe -c jnettels -c conda-forge -c defaults
+        conda build conda.recipe -c jnettels -c conda-forge -c defaults --debug
