@@ -49,7 +49,7 @@ requirements:
         - joblib
 
         # From channel jnettels
-        # - lpagg >=0.19
+        - lpagg >=0.19
 
         # dhnx/oemof dependencies:
         #- PyUtilib
