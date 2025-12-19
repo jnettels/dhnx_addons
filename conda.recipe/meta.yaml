@@ -52,7 +52,7 @@ requirements:
         - lpagg >=0.19
 
         # dhnx/oemof dependencies:
-        - PyUtilib
+        #- PyUtilib
         - Pyomo >=6.8.0
         - addict
         - blinker
