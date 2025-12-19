@@ -55,7 +55,7 @@ requirements:
         #- PyUtilib
         #- Pyomo >=6.8.0
         #- addict
-        - blinker
+        #- blinker
         - dill
         - nose
 
