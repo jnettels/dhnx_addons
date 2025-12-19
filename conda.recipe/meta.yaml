@@ -52,15 +52,15 @@ requirements:
         - lpagg >=0.19
 
         # dhnx/oemof dependencies:
-        #- PyUtilib
-        #- Pyomo >=6.8.0
-        #- addict
-        #- blinker
+        - PyUtilib
+        - Pyomo >=6.8.0
+        - addict
+        - blinker
         - dill
         - nose
 
         # pandapipes/pandapower dependencies
-        #- deepdiff
+        - deepdiff
         #- geojson
 
         # The following dependencies are installed via pip
