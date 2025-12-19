@@ -36,13 +36,13 @@ requirements:
         - matplotlib
         - osmnx >=1.9.4
         - momepy
-        #- coolprop
-        #- fiona
+        - coolprop
+        - fiona
         #- gdal >=3.7  # Fix for CityGML
-        #- tobler
-        #- h3-py
-        #- contextily
-        #- libpysal
+        - tobler
+        - h3-py
+        - contextily
+        - libpysal
         #- shapely >=2.0
         #- openpyxl
         #- fuzzywuzzy
