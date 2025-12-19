@@ -66,6 +66,7 @@ jobs:
       with:
         auto-update-conda: true
         activate-environment: work
+        channels: conda-forge,defaults
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies with conda
