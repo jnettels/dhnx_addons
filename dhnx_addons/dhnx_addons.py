@@ -2988,7 +2988,8 @@ def convert_building_area(
         buildings, A_input='a_BGF', A_output='a_N',
         decimals=2, col_building_type='building_type',
         aliases_SFH=[], aliases_MFH=[], aliases_business=[],
-        aliases_unknown=[]):
+        aliases_unknown=[],
+        warn_empty=True):
     """Convert various area types of buildings.
 
     Use the existing column A_input to calculate and add the column A_output.
@@ -3026,6 +3027,7 @@ a_N,Nutzfläche nach EnEV,      0.71877,0.75024,0.64259,0.64834,0.62497,0.89437
     # Read the string table into DataFrame, then drop the description index
     df_ratio = pd.read_csv(io.StringIO(data), index_col=[0, 1], header=[0, 1])
     df_ratio = df_ratio.droplevel('A_full', axis='index')
+    df_ratio.columns.rename({"building_type": col_building_type}, inplace=True)
 
     # Include an "unknown" category, using the mean for each area type
     df_ratio[('unknown', 'unknown')] = df_ratio.mean(axis='columns')
@@ -3071,9 +3073,9 @@ a_N,Nutzfläche nach EnEV,      0.71877,0.75024,0.64259,0.64834,0.62497,0.89437
                                                  + aliases_business)
         buildings.loc[mask, 'a_WFL'] = buildings.loc[mask, 'a_WFL'].fillna(0)
 
-    if buildings[A_output].isna().any():
-        logger.warning("Not all buildings received an area")
-        breakpoint()
+    if warn_empty:
+        if buildings[A_output].isna().any():
+            logger.warning("Not all buildings received an area")
 
     return buildings
 
