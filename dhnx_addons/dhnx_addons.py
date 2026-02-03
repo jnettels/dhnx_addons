@@ -6472,6 +6472,7 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
                       col_try='try_code',
                       col_heat='e_th_heat_kWh',
                       col_DHW='e_th_DHW_kWh',
+                      col_E_el='E_el_kWh',
                       col_T_lim_summer='summer_temperature_limit',
                       col_T_lim_winter='winter_temperature_limit',
                       weather_file=None,
@@ -6509,7 +6510,7 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     rename_dict = {
         col_heat: 'Q_Heiz_a',  # space heating
         col_DHW: 'Q_TWW_a',  # domestic hot water
-        'E_el_kWh': 'W_a',  # electricity
+        col_E_el: 'W_a',  # electricity
         col_building_type: 'house_type',
         col_N_pers: 'N_Pers',
         col_N_flats: 'N_WE',
