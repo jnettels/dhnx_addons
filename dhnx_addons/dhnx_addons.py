@@ -6536,6 +6536,12 @@ def lpagg_prepare_cfg(gdf, sigma=0, show_plot=False,
     df_lpagg['copies'] = 1  # Each building is only considered once (no copies)
     df_lpagg['sigma'] = sigma  # Standard deviation for simultaneity shift
 
+    if df_lpagg.columns.duplicated().any():
+        raise ValueError(
+            "DataFrame columns are not unique in the lpagg "
+            "input, please fix all of the following duplicates: "
+            f"\n{ df_lpagg.columns[df_lpagg.columns.duplicated()].values}")
+
     houses_dict = df_lpagg.to_dict(orient='index')
 
     if weather_file is None:
