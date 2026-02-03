@@ -580,13 +580,14 @@ def load_example_area(crs='epsg:4647'):
 
 # Section "Input/Output"
 
-def load_xml_geodata(file, layer=None, driver='GML', crs="EPSG:25833",
-                     **kwargs):
+def load_xml_geodata(file, crs, layer=None, driver='GML', **kwargs):
     """Load (3D) geographical data from XML files (citygml).
 
     This should not be necessary, since gpd.read_file(file) should do the
     same. But somehow this approach works, using fiona directly, while
     geopandas fails for some xml files.
+
+    For crs, "EPSG:25832" and "EPSG:25833" are common options.
     """
     with fiona.open(file, 'r', driver=driver, layer=layer, **kwargs) as src:
         features = [feature for feature in src]
