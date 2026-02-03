@@ -296,11 +296,7 @@ def setup(log_level='INFO'):
                             module='Memory')
 
     # Silencing specific FutureWarning by message content
-    warnings.filterwarnings(
-        action="ignore", module='oemof.solph',
-        message=("For backward compatibility, the option investment "
-                 "overwrites the option nominal_value. Both options cannot "
-                 "be set at the same time."), category=FutureWarning)
+
     warnings.filterwarnings(
         action="ignore", module='oemof.network',
         message=("Usage of oemof.network.Component is deprecated. "
@@ -413,7 +409,7 @@ def workflow_example_openstreetmap(
     # multiple time steps in order to optimize the network for all of them.
     # Set the nominal heating capacity of each producer. This example
     # would only work if gdf_prod already has two producer entries.
-    gdf_prod['heat.source.nominal_value'] = [2500, 2500]  # kW
+    gdf_prod['heat.source.nominal_capacity'] = [2500, 2500]  # kW
     # Define e.g. two time steps for each producer. In the first time step
     # only the first producer is active and vice versa. This should result
     # in a grid that can be heated from both producers.
@@ -433,7 +429,7 @@ def workflow_example_openstreetmap(
     df_load_ts_slice = pd.concat([df_load_ts_slice, df_load_ts_slice])
 
     # Create a producer DataFrame with the desired settings
-    gdf_prod['heat.source.nominal_value'] = [5000, 400]
+    gdf_prod['heat.source.nominal_capacity'] = [5000, 400]
     gdf_prod['heat.source.max'] = [
         [1]*n_ts + [1]*n_ts,  # Condition 1: source 1 | source 2
         [0.001]*n_ts + [1]*n_ts  # Condition 2: source 1 | source 2
