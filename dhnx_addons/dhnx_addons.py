@@ -4434,10 +4434,22 @@ def plot_geometries(
 
 def custom_plot_save(filename, folder='', dpi=750,
                      transparent=False, extensions=['.png', '.svg']):
-    """Save plot figures to different file formats."""
+    """Save plot figures to different file formats.
+
+    If the given filename is given without extension, then the files with
+    the extensions listed in ``extensions`` are created.
+    If the given filename includes an extension, only that file is created.
+    """
     filepath = os.path.join(folder, filename)
     if not os.path.exists(os.path.dirname(filepath)):
         os.makedirs(os.path.dirname(filepath))
+
+    ext = os.path.splitext(filepath)[1]
+    if ext == '':  # Create all files from list ``extensions``
+        pass
+    else:  # Create only the given file
+        filepath = os.path.splitext(filepath)[0]
+        extensions = [ext]
 
     for ext in extensions:
         plt.savefig(filepath+ext, dpi=dpi, bbox_inches='tight',
