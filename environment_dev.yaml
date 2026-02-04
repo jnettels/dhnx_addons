@@ -36,7 +36,7 @@ channels:
 dependencies:
     - python
     - pip
-    - pandas
+    - pandas <3.0  # issues in pandapipes 0.13
     - pyyaml
     - numpy >=2.0
     # - scipy <1.16  # in case of issues with tobler
@@ -71,11 +71,13 @@ dependencies:
     # pandapipes/pandapower dependencies
     - deepdiff
     - geojson
+    - pandera =0.26.1  # from pandapower 3.3
+    - packaging =25.0  # from pandapower 3.3
 
     # Specify automatic pip installations
     - pip:
         - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
         - oemof.solph >=0.6
         - demandlib >=0.2.2
-        - pandapipes >=0.12
-        - pandapower <3.2  # https://github.com/e2nIEE/pandapipes/issues/770
+        - pandapipes >=0.13
+        # - pandapower <3.2  # https://github.com/e2nIEE/pandapipes/issues/770

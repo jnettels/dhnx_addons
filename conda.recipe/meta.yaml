@@ -27,7 +27,7 @@ requirements:
     run:
         # dhnx_addons dependencies
         - python
-        - pandas
+        - pandas <3.0  # issues in pandapipes 0.13
         - pyyaml
         - numpy >=2.0
         # - scipy <1.16  # in case of issues with tobler
@@ -62,6 +62,8 @@ requirements:
         # pandapipes/pandapower dependencies
         - deepdiff
         - geojson
+        - pandera =0.26.1  # from pandapower 3.3
+        - packaging =25.0  # from pandapower 3.3
 
         # The following dependencies are installed via pip
         # They are listed here only for reference
