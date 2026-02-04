@@ -1129,6 +1129,9 @@ def assign_alkis_functions_to_osm_building_keys(
         'Überdachung': 'roof'
         })
 
+    if not col_building_osm in buildings.columns:
+        buildings[col_building_osm] = pd.NA
+
     for alkis_function, building in alkis_to_osm_building.items():
         mask1 = buildings[col_alkis_function] == alkis_function
         mask2 = buildings[col_building_osm].isna()
@@ -1228,7 +1231,7 @@ def fill_residential_osm_building_types(
     logger.info('Fill residential OpenStreetMap building types')
 
     if col_building_osm not in gdf.columns:
-        gdf[col_building_osm] = np.nan
+        gdf[col_building_osm] = pd.NA
 
     if discard_types is not None:
         mask_na = gdf[col_building_osm].replace(discard_types, np.nan).isna()
@@ -1290,7 +1293,7 @@ def fill_random_osm_building_types(
     logger.info('Fill random osm building types')
 
     if col_building_osm not in buildings.columns:
-        buildings[col_building_osm] = np.nan
+        buildings[col_building_osm] = pd.NA
 
     # Get all buildings where col_heated is True and building is not yet
     # defined, i.e. None
@@ -1470,7 +1473,7 @@ def assign_random_construction_classification(
 
     if col_refurbished_state is not None:
         if col_refurbished_state not in gdf.columns:
-            gdf[col_refurbished_state] = np.nan
+            gdf[col_refurbished_state] = pd.NA
 
         gdf.fillna({col_refurbished_state:
                     pd.Series(rng.choice(refurbished_states, size=len(gdf),
@@ -1550,7 +1553,7 @@ def assign_construction_classification_from_arge(
     # and assign it to the original DataFrame. Since the index was kept,
     # everything should align, despite dropping NaN.
     if col_refurbished_state not in gdf.columns:
-        gdf[col_refurbished_state] = np.nan
+        gdf[col_refurbished_state] = pd.NA
 
     gdf.fillna({col_refurbished_state: df_selections.idxmax(axis=1)},
                inplace=True)
@@ -2775,6 +2778,9 @@ def calculate_levels_from_height(
     decimals (int): Number of decimal places to round the result to
 
     """
+    if col_levels not in gdf.columns:
+       gdf[col_levels] = pd.NA
+
     if level_height is None and col_level_height is None:
         raise ValueError("One of level_height and col_level_height "
                          "must be defined")
@@ -2922,8 +2928,18 @@ def make_columns_numeric(df, columns=None, downcast='integer',
     """Make as many of the columns as possible numeric with pd.to_numeric."""
     if columns is None:
         columns = df.columns
-    df[columns] = df[columns].apply(pd.to_numeric, downcast=downcast,
-                                    errors=errors)
+
+    def parse_numbers(x, downcast=None):
+        try:
+            return pd.to_numeric(x, downcast=downcast)
+        except Exception:  # Return original value if it cannot be made numeric
+            return x
+
+    if errors == 'ignore':  # Retain functionality of pandas<3.0
+        df[columns] = df[columns].apply(parse_numbers, downcast=downcast)
+    else:
+        df[columns] = df[columns].apply(pd.to_numeric, downcast=downcast,
+                                        errors=errors)
     # print(df.dtypes)
     return df
 
