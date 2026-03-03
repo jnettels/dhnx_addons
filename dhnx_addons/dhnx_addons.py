@@ -3791,9 +3791,11 @@ def create_hexgrid(gdf_buildings, gdf_area=None, resolution=None, clip=False,
     if resolution is None:
         resolution = fit_hexgrid_resolution(gdf_area.area.sum())
 
-    gdf_hex = tobler.util.h3fy(gdf_area,
+    # Convert h3 input to WGS84 (EPSG:4326) to prevent warning
+    gdf_hex = tobler.util.h3fy(gdf_area.to_crs("EPSG:4326"),
                                resolution=resolution,
-                               clip=clip)
+                               clip=clip
+                               ).to_crs(gdf_area.crs)  # convert back
 
     if gdf_hex.empty:
         logger.error("Hexgrid is not available. A higher resolution than {} "
