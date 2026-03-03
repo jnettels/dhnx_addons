@@ -5008,7 +5008,7 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
 
     results_edges = network.results.optimization['components']['pipes']
     gdf_pipes = network.components['pipes'].copy()
-    gdf_pipes = gdf_pipes[results_edges["capacity"] > 0]
+    gdf_pipes = gdf_pipes.loc[results_edges["capacity"] > 0]
     G = momepy.gdf_to_nx(gdf_pipes, approach="primal")
 
     if not nx.is_connected(G):
@@ -5025,7 +5025,7 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
                        "again with previous result as starting point, after "
                        f"keeping only pipes with capacity>{lim_capacity} kW.")
 
-        gdf_pipes = gdf_pipes[results_edges["capacity"] > lim_capacity]
+        gdf_pipes = gdf_pipes.loc[results_edges["capacity"] > lim_capacity]
         # Use the previous result as the input, then re-run the optimization
         network.components['pipes'] = gdf_pipes
         if settings["solver"] == 'gurobi':
