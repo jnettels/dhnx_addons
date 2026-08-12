@@ -2577,6 +2577,80 @@ def assign_KWW_types_from_osm(
     return gdf
 
 
+def assign_KWW_types_from_BDEW(
+        gdf,
+        col_bdew_type,
+        col_kww_branch='KWW Branche',
+        col_kww_sector='KWW Sektor',
+        col_heated=None,
+        warn_undefined=True,
+        ):
+    branch_dict = {
+        # Haushalte
+        'EFH': ['EFH'],
+        'MFH': ['MFH'],
+
+        # Industrie
+        'Nahrungsmittelgewerbe': ['GBA'],
+        'Herstellungsbetriebe': ['GMK', 'GPD'],
+        'Industrie': [],
+
+        # GHD
+        'Krankenhäuser': ['', ],
+        'Wäschereien': ['GWA'],
+        'Beherbergung, Gastsstätten, Heime': ['GGA', 'GBH'],
+        'Kultur': [],
+        'Sport': [],
+        'Bildung': [''],
+        'Büroähnliche Betriebe': ['GKO', 'GBD', 'GMF', 'GHD'],
+        'Handel': ['GHA',],
+        'Landwirtschaft': ['GGB'],
+        'Textil, Bekleidung, Spedition': [],
+        'Baugewerbe': [],
+        'Nicht zugeordnet': [],
+        }
+
+    sector_dict = {
+        'EFH': ['EFH'],
+        'MFH': ['MFH'],
+        'GHD':
+            ['Baugewerbe', 'Beherbergung, Gastsstätten, Heime', 'Bildung',
+             'Büroähnliche Betriebe', 'Handel', 'Krankenhäuser', 'Kultur',
+             'Landwirtschaft', 'Sport', 'Textil, Bekleidung, Spedition',
+             'Wäschereien'],
+        'Industrie':
+            ['Herstellungsbetriebe', 'Industrie', 'Nahrungsmittelgewerbe'],
+        }
+
+    # Match appropriate branches of building types from OpenStreetMap keys
+    # to KWW definitions.
+    # However, these are not always precise. E.g. detached or semidetached
+    # houses can be either single or multi-family homes
+    for b_type, b_list in branch_dict.items():
+        gdf.loc[gdf[col_bdew_type].isin(b_list), col_kww_branch] = b_type
+
+
+    if col_heated is not None:
+        # Buildings that are not declared as heated do not receive a category
+        gdf.loc[~gdf[col_heated].isin([True]), col_kww_branch] = np.nan
+
+    # Match KWW building branches to the correct sector
+    for b_type, b_list in sector_dict.items():
+        gdf.loc[gdf[col_kww_branch].isin(b_list), col_kww_sector] = b_type
+
+    if warn_undefined:
+        undefined = gdf.loc[gdf[col_kww_branch].isna(),
+                            col_bdew_type].value_counts()
+        if not undefined.empty:
+            logger.warning("During assignment of KWW building types from "
+                           "BDEW types, the following tags were "
+                           "found to be undefined. Consider updating "
+                           "assign_KWW_types_from_BDEW() with appropriate "
+                           "assignments:\n%s", undefined)
+
+    return gdf
+
+
 def load_KWW_technikkatalog_renovation_data(overwrite_fPW=None):
     file = "Technikkatalog_Wärmeplanung_Version_1.1_August24_CC-BY.xlsx"
     path = os.path.join(os.path.dirname(__file__), 'input', file)
