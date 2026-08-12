@@ -4725,6 +4725,12 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                              f"thermal power in column '{col_p_th}'")
 
         gdf_poly_houses['P_heat_max'] = gdf_poly_houses[col_p_th]
+        df_missing = gdf_poly_houses.loc[~(gdf_poly_houses['P_heat_max'] > 0)]
+        if not df_missing.empty:
+            raise ValueError(
+                "Every input building must have a thermal power demand larger "
+                "than zero, otherwise DHNx cannot work properly. The following"
+                f" buildings cause the error: \n{df_missing}")
 
     if ((df_load_ts_slice is None) and
        (col_p_th not in gdf_poly_houses.columns)):
