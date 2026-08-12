@@ -6873,7 +6873,9 @@ def lpagg_merge_houses_and_load(
     Assumes that the index defines the house name in both DataFrames.
     Also calculates full use hours.
     """
+    idx_names = df_houses.index.names
     df_houses = df_houses.merge(df_load, left_index=True, right_index=True)
+    df_houses.index.set_names(idx_names, inplace=True)
 
     # Set a column P_heat_max for using a single value in DHNx
     df_houses['P_heat_max'] = df_houses['P_th']  # for DHNX
