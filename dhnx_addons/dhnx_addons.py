@@ -4232,7 +4232,7 @@ def download_buildings_from_osm(
                       .convex_hull],
             crs=gdf_polygon.crs)
 
-    polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
+    polygon = gdf_polygon.to_crs(epsg=4326).union_all()  # for osmnx
     try:  # osmnx>=1.5.0
         gdf = ox.features_from_polygon(polygon, tags=building_tags)
     except AttributeError:  # osmnx<1.5.0
