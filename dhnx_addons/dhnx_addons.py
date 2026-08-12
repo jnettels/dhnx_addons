@@ -4012,6 +4012,7 @@ def plot_hexgrid(
         k=7,
         show_plot=True,
         plot_basemap=False,
+        provider='OSM',
         ):
     """Plot the result from create_hexgrid()."""
     if not show_plot or gdf_hex.empty:
@@ -4047,12 +4048,11 @@ def plot_hexgrid(
                          "for plot".format(plot_col)) from e
 
     if plot_basemap:
-        add_basemap(ax, crs=gdf_hex.crs)
+        add_basemap(ax, crs=gdf_hex.crs, provider=provider)
     if gdf_buildings is not None:
         gdf_buildings.plot(ax=ax)
     ax.axis('off')
     plt.show()
-
 
 
 def fit_hexgrid_resolution(area):
