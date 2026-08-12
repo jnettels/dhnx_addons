@@ -5685,9 +5685,27 @@ def lineralize_pipe_input(
 
 
 def get_default_dhnx_invest_options():
-    """Generate a dictionary with the default investments options for DHNx.
+    """Generate a dictionary with default investments options for DHNx.
 
-    dhnx.input_output.load_invest_options()
+    This provides a working dataset. However, a user should always replace
+    the ``pipes`` DataFrame in ``network`` with their own data, since
+    it is not only dependent on used materials but also on operating
+    temperatures, which will vary for each project.
+
+    Using ``get_pipe_input_data()`` will help you setting up custom pipe data.
+
+    .. code::
+
+        invest_options = dhnx_addons.get_default_dhnx_invest_options()
+        df_DN = dhnx_addons.get_pipe_input_data(...your settings...)
+        df_invest_opt_pipes = dhnx_addons.lineralize_pipe_input(df_DN)
+        invest_options['network'] = dict(pipes=df_invest_opt_pipes)
+
+        # The result can be used for the optimization of your network
+        network.optimize_investment(invest_options=invest_options)
+
+    The consumer and producer settings do not need to be changed.
+
     """
     consumers_bus = """
 label_2,active,excess,shortage,shortage costs,excess costs
@@ -5705,6 +5723,10 @@ heat,1,1
 label_2,active
 heat,1
 """
+    network = """
+label_3,nonconvex,l_factor,l_factor_fix,cap_min,cap_max,capex_pipes,fix_costs
+pipe-generic,1,1.5812551e-07,0.0221164,1,519307.085403,0.02908927,948.69105059
+"""
 
     invest_options = dict(
         consumers=dict(
@@ -5714,7 +5736,10 @@ heat,1
         producers=dict(
             bus=pd.read_csv(io.StringIO(producers_bus)),
             source=pd.read_csv(io.StringIO(producers_source)),
-            )
+            ),
+        network=dict(
+            pipes=pd.read_csv(io.StringIO(network))
+            ),
         )
     return invest_options
 
