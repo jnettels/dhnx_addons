@@ -168,6 +168,7 @@ import scipy
 import numpy as np
 import shapely
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype
 import geopandas as gpd
 import matplotlib
 from matplotlib.patches import Patch
@@ -917,7 +918,33 @@ def save_excel(df, path, **kwargs):
         os.makedirs(os.path.dirname(path))
     try:
         logger.info('Saving... %s', path)
-        df_save.to_excel(path, **kwargs)
+        try:
+            df_save.to_excel(path, **kwargs)
+        except ValueError as e:
+            if "Excel does not support datetimes with timezones" in str(e):
+                # ValueError: Excel does not support datetimes with timezones
+                # Convert timezone-aware columns, which excel cannot handle
+                mask = [is_datetime64_any_dtype(df[c])
+                        for c in df_save.columns]
+                if any(mask):
+                    for col_datetime in df_save.columns[mask]:
+                        df_save[col_datetime] = (
+                            df_save[col_datetime].dt.tz_convert(tz=None))
+
+                # Also check the index columns
+                for idx in df_save.index.names:
+                    idx_vals = df.index.unique(idx)
+                    if is_datetime64_any_dtype(idx_vals):
+                        df_save.index = df_save.index.set_levels(
+                            idx_vals.tz_convert(tz=None),
+                            level=idx)
+
+                # Try again:
+                df_save.to_excel(path, **kwargs)
+
+            else:
+                raise e
+
     except PermissionError:
         input("Please close the file to allow saving! Then hit Enter.")
         save_excel(df_save, path, **kwargs)
