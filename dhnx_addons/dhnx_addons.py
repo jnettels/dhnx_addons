@@ -2976,7 +2976,7 @@ def calculate_levels_from_height(
 def calculate_building_areas(
         gdf, col_levels=['building:levels', 'roof:levels'], levels_default=1.5,
         area_list=['a_N', 'a_WFL', 'a_NRF'], decimals=2,
-        col_building_type='building_type', **kwargs):
+        **kwargs):
     """Calculacte the desired areas for each building in the GeoDataFrame.
 
     In OpenStreetMap, the total number of levels are defined by three keys:
