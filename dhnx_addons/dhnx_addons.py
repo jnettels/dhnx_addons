@@ -3121,7 +3121,7 @@ a_N,Nutzfläche nach EnEV,      0.71877,0.75024,0.64259,0.64834,0.62497,0.89437
 
 
 def apply_adoption_rate(gdf, adoption_rate=0.5,
-                        col_candidates='DISTRICT_HEATING'):
+                        col_candidates='DISTRICT_HEATING', seed=42):
     """Apply an adoption rate to a GeoDataFrame of buildings.
 
     We may not want to supply all given buildings with heat, to simulate
@@ -3153,10 +3153,11 @@ def apply_adoption_rate(gdf, adoption_rate=0.5,
     gdf.sort_values(by=col_candidates, ascending=False, inplace=True)
     gdf.reset_index(drop=True, inplace=True)
     # ... then a list of random choices (indices) is generated and applied
-    # (equals a fraction of total buildings to connect to DHN):
-    ids_DH = np.random.choice(n_candidates,
-                              size=int(adoption_rate*n_candidates),
-                              replace=False)
+    # (equals a fraction of total buildings to connect to DHN)
+    rng = np.random.default_rng(seed=seed)
+    ids_DH = rng.choice(n_candidates,
+                        size=int(adoption_rate*n_candidates),
+                        replace=False)
     # Now set all candidates to False, before setting the chosen ones to True
     gdf[col_candidates] = False
     gdf.loc[ids_DH, col_candidates] = True
