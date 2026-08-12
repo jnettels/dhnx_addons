@@ -5108,16 +5108,28 @@ def copy_dhnx_network(network):
     solves such use cases.
     """
     new_network = dhnx.network.ThermalNetwork()
-    new_network.components = dhnx.helpers.Dict({
-        key: df.copy() for key, df in network.components.items()
-    })
-    new_network.sequences = network.sequences.copy()
-    new_network.results = network.results.copy()
-    if network.timeindex is not None:
-        new_network.timeindex = network.timeindex.copy()
-    if network.graph is not None:
-        new_network.graph = network.graph.copy()
+    copy_dhnx_network_internals(network_src=network, network_dst=new_network)
     return new_network
+
+
+def copy_dhnx_network_internals(network_src, network_dst):
+    """Copy internals of dhnx source network to destination network.
+
+    Overwrites ``network_dst`` in place.
+
+    Can be used indirectly via ``copy_dhnx_network()`` to create a backup,
+    or e.g. to restore such a backup.
+    """
+    network_dst.components = dhnx.helpers.Dict({
+        key: df.copy() for key, df in network_src.components.items()
+    })
+    network_dst.sequences = network_src.sequences.copy()
+    network_dst.results = network_src.results.copy()
+    if network_src.timeindex is not None:
+        network_dst.timeindex = network_src.timeindex.copy()
+    if network_src.graph is not None:
+        network_dst.graph = network_src.graph.copy()
+    return
 
 
 def simultaneity_factor(n, decimals=5, a=None):
