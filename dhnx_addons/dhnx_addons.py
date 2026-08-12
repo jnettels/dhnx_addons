@@ -2292,9 +2292,19 @@ def separate_heating_and_DHW(
 
 
 def calculate_energy_renovation_from_KWW(
-        gdf, col_total='e_th_total_kWh', col_n_living_units=None,
-        overwrite_fPW=None):
+        gdf,
+        col_construction_year='baujahr',
+        col_kww_branch='KWW Branche',
+        col_kww_sector='KWW Sektor',
+        col_A_N='a_N',
+        col_heated=None,
+        overwrite_fPW=None,
+        col_total=None,
+        ):
     """Calulate energy renovation values from source KWW.
+
+    To prepare the required columns ``col_kww_branch`` and ``col_kww_sector``,
+    run ``assign_KWW_types_from_osm()`` or ``assign_KWW_types_from_BDEW()``.
 
     Source:
 
@@ -2339,44 +2349,51 @@ def calculate_energy_renovation_from_KWW(
 
         return age_bins, age_labels
 
+    if not col_A_N in gdf.columns:
+        raise ValueError(f"Selected column '{col_A_N}' for 'Nutzfläche A_N' "
+                         "not found. Choose a different column or calculate "
+                         "it with 'convert_building_area()'")
+
     df_renovation = load_KWW_technikkatalog_renovation_data(
         overwrite_fPW=overwrite_fPW)
 
-    gdf = assign_KWW_types_from_osm(gdf, col_n_living_units=col_n_living_units)
-    gdf.loc[~gdf['heated'], ['KWW Sektor', 'KWW Branche']] = np.nan
-
-    gdf.value_counts('KWW Branche')
+    if col_heated is not None:
+        gdf.loc[~gdf[col_heated], ['KWW Sektor', 'KWW Branche']] = pd.NA
 
     # Single-family homes
-    mask = (gdf['heated'] & gdf['KWW Branche'].isin(['EFH']))
+    mask = (gdf['KWW Branche'].isin(['EFH']))
     age_bins, age_labels = get_age_bins_and_labels(
         df_renovation.xs('EFH', level='KWW Branche'))
     gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
-        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        gdf.loc[mask, col_construction_year],
+        bins=age_bins, labels=age_labels, right=True
         ).astype(str)
 
     # Multi-family homes
-    mask = (gdf['heated'] & gdf['KWW Branche'].isin(['MFH']))
+    mask = (gdf['KWW Branche'].isin(['MFH']))
     age_bins, age_labels = get_age_bins_and_labels(
         df_renovation.xs('MFH', level='KWW Branche'))
     gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
-        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        gdf.loc[mask, col_construction_year],
+        bins=age_bins, labels=age_labels, right=True
         ).astype(str)
 
     # Industry
-    mask = (gdf['heated'] & gdf['KWW Sektor'].isin(['Industrie']))
+    mask = (gdf['KWW Sektor'].isin(['Industrie']))
     age_bins, age_labels = get_age_bins_and_labels(
         df_renovation.xs('Industrie', level='KWW Sektor'))
     gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
-        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        gdf.loc[mask, col_construction_year],
+        bins=age_bins, labels=age_labels, right=True
         ).astype(str)
 
     # Trades, commerce, services (Gewerbe, Handel, Dienstleistungen)
-    mask = (gdf['heated'] & gdf['KWW Sektor'].isin(['GHD']))
+    mask = (gdf['KWW Sektor'].isin(['GHD']))
     age_bins, age_labels = get_age_bins_and_labels(
         df_renovation.xs('GHD', level='KWW Sektor'))
     gdf.loc[mask, 'KWW Baualtersklasse'] = pd.cut(
-        gdf.loc[mask, 'baujahr'], bins=age_bins, labels=age_labels, right=True
+        gdf.loc[mask, col_construction_year],
+        bins=age_bins, labels=age_labels, right=True
         ).astype(str)
 
     # Now that all merge columns are assigned to all building types,
@@ -2393,17 +2410,18 @@ def calculate_energy_renovation_from_KWW(
     for energy in ['total', 'RW', 'WW', 'PW']:
         for year in ['now']:
             gdf[f'KWW_E_th_{energy}_{year}'] = (
-                gdf[f'KWW_E_th_spec_{energy}_{year}'] * gdf['a_N']
+                gdf[f'KWW_E_th_spec_{energy}_{year}'] * gdf[col_A_N]
                 )
         for year in ['2045']:
             for scenario in ['hoch', 'niedrig']:
                 gdf[f'KWW_E_th_{energy}_{year}_{scenario}'] = (
                     gdf[f'KWW_E_th_spec_{energy}_{year}_{scenario}']
-                    * gdf['a_N']
+                    * gdf[col_A_N]
                     )
 
-    gdf = apply_energy_renovation_from_KWW_to_reference(
-        gdf, col_total=col_total)
+    if col_total is not None:
+        gdf = apply_energy_renovation_from_KWW_to_reference(
+            gdf, col_total=col_total)
 
     return gdf
 
@@ -2468,7 +2486,7 @@ def assign_KWW_types_from_osm(
         'EFH': ['house', 'residential', 'detached', 'semidetached_house',
                 'terrace', 'farm', 'bungalow', 'villa',
                 ],
-        'MFH': ['apartments', 'dormitory'],
+        'MFH': ['apartments'],
 
         # Industrie
         'Nahrungsmittelgewerbe': ['brewery'],
@@ -2480,7 +2498,7 @@ def assign_KWW_types_from_osm(
         'Wäschereien': [],
         'Beherbergung, Gastsstätten, Heime':
             ['restaurant', 'hotel', 'hostel', 'kindergarten', 'religious',
-             'church', 'cathedral', 'presbytery', 'mosque',],
+             'church', 'cathedral', 'presbytery', 'mosque', 'dormitory'],
         'Kultur':
             ['museum', ],
         'Sport': ['sports_hall', 'sports_centre', 'stadium', ],
@@ -2501,7 +2519,7 @@ def assign_KWW_types_from_osm(
              'toilets', 'bunker', 'disused', 'ruins', 'allotment_house',
              'no', 'kiosk', 'hall', 'electricity', 'chimney', 'container',
              'substation', 'lighthouse', 'ship', 'shelter', 'roof_terrace',
-             'stable',
+             'stable', 'yes',
              ],
         }
 
