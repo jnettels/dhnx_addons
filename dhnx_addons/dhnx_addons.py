@@ -4537,10 +4537,29 @@ def clean_previous_street_results(gdf):
 
     In such a case, the generator line(s) and house lines must be removed
     from the network, and old columns are removed for savety.
+
+    However, if existing=1 was used to mark any pipe segments as
+    previously existing (and thus not up for optimization) the relevant
+    settings for those segments must be kept intact.
     """
     if 'type' in gdf.columns:
         mask = gdf['type'].isin(['DL'])
-        gdf = gdf.loc[mask, [gdf.geometry.name]]
+        gdf = gdf.loc[mask]
+
+        if 'existing' in gdf.columns:
+            # Strings can happen if a mixed type (i.e. object) column
+            # is saved as geopackage
+            mask_existing = gdf['existing'].isin([True, "True", 1, "1"])
+            if mask_existing.any():
+                gdf = gdf[[gdf.geometry.name,
+                           'existing', 'DN', 'capacity', 'hp_type']]
+
+                gdf.loc[~mask_existing,
+                        ['existing', 'DN', 'capacity', 'hp_type']] = np.nan
+            else:
+                gdf = gdf[[gdf.geometry.name]]
+        else:
+            gdf = gdf[[gdf.geometry.name]]
 
     return gdf
 
