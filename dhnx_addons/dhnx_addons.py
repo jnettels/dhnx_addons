@@ -5120,15 +5120,33 @@ def copy_dhnx_network(network):
     return new_network
 
 
-def simultaneity_factor(n, decimals=5):
+def simultaneity_factor(n, decimals=5, a=None):
     """Calculate simultaneity factor based on number of consumers n.
 
     Winter, Walter; Haslauer, Thomas; Obernberger, Ingwald (2001)
     Untersuchungen der Gleichzeitigkeit in kleinen und
     mittleren Nahwärmenetzen. In: Euroheat & Power (9/10).
+
+    Parameters
+    ----------
+    n : int
+        Number of consumers.
+    decimals : int, optional
+        Number of decimal points to round result to. The default is 5.
+    a : float, optional
+        Asymptotic value in deterministic simultaneity function.
+        Can be used to adapt the default distribution from literature.
+        The default is None (which means using a~=0.45).
+
+    Returns
+    -------
+    f : float
+        Simultaneity factor.
+
     """
     n = np.asarray(n, dtype=float)
-    a = 0.449677646267461
+    if a is None:
+        a = 0.449677646267461
     b = 0.551234688
     c = 53.84382392
     d = 1.762743268
@@ -5141,7 +5159,7 @@ def simultaneity_factor(n, decimals=5):
 def plot_simultaneity_factor(
         n=None, other_points=None, threshold_log=10000, save_path=None,
         filename='Verlauf Gleichzeitigkeitsfaktor', filetypes=None,
-        dpi=200, figsize=(14, 7), show_plot=True):
+        dpi=200, figsize=(14, 7), show_plot=True, a=None):
     """Plot simultaneity factor of n consumers along with the distribution.
 
     To control language for plot labels, set locale:
@@ -5163,7 +5181,7 @@ def plot_simultaneity_factor(
 
     if n is not None:
         n_max = n
-        sf = simultaneity_factor(n)
+        sf = simultaneity_factor(n, a=a)
     else:
         n_max = 300  # Range in original source
         sf = None
@@ -5182,7 +5200,7 @@ def plot_simultaneity_factor(
             ax.plot(_x, _y, **kwargs)
 
     x = np.arange(n_max + 1)
-    y = simultaneity_factor(x)
+    y = simultaneity_factor(x, a=a)
     ax.plot(x, y, label=txt_label_dist)
     ax.set_xlabel(txt_xlabel)
     ax.set_ylabel(txt_ylabel)
@@ -6802,6 +6820,7 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
             n,
             other_points=[dict(x=n, y=sf_lpagg, label="LPagg")],
             show_plot=show_plot,
+            a=cfg['settings'].get('a_simul', None),
             )
 
     return gdf, df_load_ts_slice, cfg
