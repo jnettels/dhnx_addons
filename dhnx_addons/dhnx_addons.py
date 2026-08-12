@@ -2106,6 +2106,8 @@ def set_domestic_hot_water_from_DIN18599(
         col_DHW='e_th_DHW_kWh',
         col_spec_DHW='e_th_spec_DHW',
         col_building_osm='building_osm',
+        col_A_NRF='a_NRF',
+        aliases_residential=[],
         decimals=2):
     """Set domestic hot water energy demand from DIN 18599.
 
@@ -2125,11 +2127,17 @@ def set_domestic_hot_water_from_DIN18599(
         - set_domestic_hot_water_from_values()
 
     """
+    if not col_A_NRF in df.columns:
+        raise ValueError(f"Selected column '{col_A_NRF}' for 'Nettoraumfläche'"
+                         " not found. Choose a different column or calculate "
+                         "it with 'convert_building_area()'")
+
     # DIN V 18599-10:2016, page 17
-    mask = df[col_building_osm].isin(
-        ['SFH', 'MFH', 'house', 'residential', 'detached',
-         'semidetached_house', 'apartments'])
-    df.loc[mask, col_spec_DHW] = ((16.5 - df['a_NRF'] * 0.05)
+    types_residential = ['SFH', 'MFH', 'house', 'residential', 'detached',
+     'semidetached_house', 'apartments']
+    types_residential.extend(aliases_residential)
+    mask = df[col_building_osm].isin(types_residential)
+    df.loc[mask, col_spec_DHW] = ((16.5 - df[col_A_NRF] * 0.05)
                                   .clip(lower=8.5)
                                   .round(decimals))
 
@@ -2141,16 +2149,22 @@ def set_domestic_hot_water_from_DIN18599(
             ['college', 130],  # Schule
             ['commercial', 10],  # Einzelhandel, Kaufhaus
             ['government', 30],  # Bürogebäude
+            ['office', 30],  # Bürogebäude
             ['hospital', 400],  # Krankenhaus
+            ['dormitory', 150],  # Heim
             ['hotel', 350],  # Hotel mittel
             ['industrial', 90],  # Werkstatt, Industriebetrieb
-            ['public', 0],
             ['retail', 10],  # Einzelhandel, Kaufhaus
             ['school', 130],  # Schule
+            ['kindergarten', 130],  # Schule
             ['university', 130],  # Schule
+            ['sports_hall', 300],  # Fitnessraum
 
             # Not in # DIN V 18599-10:2016
+            ['yes', 0],  # Unknown building type
+            ['public', 0],
             ['warehouse', 0],  # Lagerhaus / Lagerhalle
+            ['service', 0],  # Gebäude zur Energieversorgung
             ],
         )
     # Convert Wh/(m² * d) to kWh/m²  (reference area: NGF)
@@ -2180,7 +2194,7 @@ def set_domestic_hot_water_from_DIN18599(
         # Set heat demand of non-heated buildings to zero
         df.loc[df[col_heated].isin([False]), col_spec_DHW] = 0
 
-    df[col_DHW] = (df[col_spec_DHW] * df['a_NRF']).round(decimals)
+    df[col_DHW] = (df[col_spec_DHW] * df[col_A_NRF]).round(decimals)
 
     return df
 
