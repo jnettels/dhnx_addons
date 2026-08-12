@@ -3519,7 +3519,7 @@ def merge_touching_buildings_in_parcels_slow(buildings, col_heated='heated'):
 def merge_touching_buildings_in_parcels(
         buildings, parcel_text='LAGEBEZTXT', sort_columns=[],
         parcel_text_alt=None, address_empty="", mask_skip=None,
-        predicate='intersects', silence_warnings=True,
+        predicate='intersects', silence_warnings=True, aggfunc='first',
         **kwargs_contiguity):
     """Merge all buildings that touch, but only if they share a parcel.
 
@@ -3619,11 +3619,12 @@ def merge_touching_buildings_in_parcels(
     # Merge those selected buildings
     buildings_merged = buildings.dissolve(by=weights.component_labels,
                                           sort=False,  # better performance?
-                                          aggfunc='first',
+                                          aggfunc=aggfunc,
                                           as_index=True)
 
     # Drop unused columns:
-    buildings_merged.drop(columns=[parcel_text_tmp, 'area'], inplace=True)
+    buildings_merged.drop(columns=[parcel_text_tmp, 'area'], errors='ignore',
+                          inplace=True)
     return buildings_merged
 
 
