@@ -1200,8 +1200,27 @@ def assign_alkis_functions_to_osm_building_keys(
 
 def assign_alkis_functions_to_bdew_type(
         gdf,
-        join_on="Funktion_txt",
+        join_col_gdf="Funktion_txt",
+        join_col_alkis="Funktion_txt",
+        warn_undefined=True,
         ):
+    """Assign ALKIS functions to BDEW load profile types.
+
+    Parameters
+    ----------
+    gdf : GeoDataFrame
+        (Geo)DataFrame containing ALKIS function texts or IDs.
+    join_col_gdf : str, optional
+        The column in gdf to join the other column 'join_col_alkis' with.
+    join_col_alkis : str, optional
+        "Funktion_txt" or "Funktion_ID". The default is "Funktion_txt".
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+        (Geo)DataFrame with added BDEW type columns.
+
+    """
     path = os.path.join(os.path.dirname(__file__),
                         "input", "alkis_to_bdew.csv")
     df_alkis = pd.read_csv(path)
@@ -1209,9 +1228,21 @@ def assign_alkis_functions_to_bdew_type(
                             + df_alkis['Typ_BDEW_el'])
     df_alkis = df_alkis.drop(columns=['Typ_BDEW_th', 'Typ_BDEW_el', 'WG/NWG'],
                              errors='ignore')
-    df_alkis = df_alkis.set_index(join_on, drop=True)
+    df_alkis = df_alkis.set_index(join_col_alkis, drop=True)
+    gdf = pd.merge(left=gdf, right=df_alkis, left_on=join_col_gdf,
+                   right_on=join_col_alkis, how='left'
+                   ).set_index(gdf.index)
 
-    gdf = gdf.join(df_alkis, on=join_on, how='left')
+    if warn_undefined:
+        undefined = gdf.loc[gdf['Typ_BDEW'].isna(),
+                            join_col_gdf].value_counts()
+        if not undefined.empty:
+            logger.warning("During assignment of BDEW types from "
+                           "ALKIS function types, the following tags were "
+                           "found to be undefined. Consider updating "
+                           "assign_alkis_functions_to_bdew_type() with "
+                           "appropriate assignments:\n%s", undefined)
+
     return gdf
 
 
