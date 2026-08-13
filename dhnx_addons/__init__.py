@@ -18,3 +18,4 @@ except PackageNotFoundError:
 from .dhnx_addons import *
 from .cbc_installer import *
 from .elevation import *
+from .custom_basemaps import *

@@ -187,8 +187,10 @@ except ImportError:
 
 try:
     from . import elevation  # local import
+    from . import custom_basemaps  # local import
 except ImportError:
     import elevation  # local import for running dhnx_addons.py
+    import custom_basemaps  # local import for running dhnx_addons.py
 
 logger = logging.getLogger(__name__)  # Create a logger for this module
 
@@ -4076,17 +4078,30 @@ def fit_hexgrid_resolution(area):
     return resolution
 
 
-def add_basemap(ax, crs, provider='OSM'):
-    """Add a contextily basemap in given crs to plot ax."""
+def add_basemap(ax, crs, provider='OSM', **kwargs):
+    """Add a contextily basemap in given crs to plot ax.
+
+    For a description of available map providers check out
+    https://contextily.readthedocs.io/en/latest/providers_deepdive.html
+    """
     if provider == 'Toner':
         source = contextily.providers.Stamen.TonerLite
     elif provider == 'OSM':
         source = contextily.providers.OpenStreetMap.Mapnik
     else:
-        source = contextily.providers.OpenStreetMap.Mapnik
+        source = provider
 
     try:
-        contextily.add_basemap(ax=ax, source=source, crs=crs)
+        if 'basisvisualisierung.niedersachsen' in provider:
+            custom_basemaps.add_custom_vector_basemap(
+                ax=ax, source=source, crs=crs, **kwargs)
+        elif '/wms' in provider:
+            custom_basemaps.add_custom_wms_basemap(
+                ax=ax, source=source, crs=crs, **kwargs)
+        else:
+            kwargs.setdefault("headers", dict())
+            kwargs["headers"].setdefault("User-Agent", "dhnx_addons")
+            contextily.add_basemap(ax=ax, source=source, crs=crs, **kwargs)
     except requests.exceptions.HTTPError as e:
         # Ignore extremely rare cases of HTTP errors
         logger.warning(e)
@@ -4548,10 +4563,14 @@ def plot_geometries(
         title='',
         crs_default="EPSG:4647",
         plot_basemap=False,
+        provider='OSM',
+        fill_figsize=False,
+        set_limits_to_input_object=None,
         plt_kwargs=None,
         set_axis_off=False,
         show_plot=True,
         save_path=None,
+        legend_kwargs=None,
         **fig_kwargs,
         ):
     """Plot the given list of geometry objects.
@@ -4564,9 +4583,17 @@ def plot_geometries(
         List of dictionaries for each gdf in gdf_list, with arguments to
         hand over to each gdf.plot() call.
     """
-    fig_kwargs.setdefault('figsize', (20, 10))
-    fig, ax = plt.subplots(**fig_kwargs)
-    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    # Remove arguments from fig_kwargs that are meant for other functions
+    save_kwargs = dict()
+    basemap_kwargs = dict()
+    for arg in ["folder", "dpi", "transparent", "extensions"]:
+        if arg in fig_kwargs.keys():
+            save_kwargs[arg] = fig_kwargs.pop(arg)
+    for arg in ["zoom", "headers", "attribution", "attribution_size",
+                "resampling", "zoom_adjust", "enabled_layer_types",
+                "style_override", "wms_layer", "wms_resolution"]:
+        if arg in fig_kwargs.keys():
+            basemap_kwargs[arg] = fig_kwargs.pop(arg)
 
     if isinstance(gdf_list, gpd.GeoDataFrame):
         gdf_list = [gdf_list]  # Allow single GeoDataFrame as list
@@ -4581,21 +4608,49 @@ def plot_geometries(
     if plt_kwargs is None:  # Need to create a list of empty dicts
         plt_kwargs = [dict() for x in range(len(gdf_list))]
 
-    handles = []
-
-    for gdf, color, args in zip(gdf_list, colors[:len(gdf_list)], plt_kwargs):
+    # Make sure all input objects are GeoPandas objects (convert shapely)
+    for i, gdf in enumerate(gdf_list):
         if not (isinstance(gdf, gpd.GeoDataFrame)
                 or isinstance(gdf, gpd.GeoSeries)):
             # Assume that this is a shapely geometry that can be converted
             gdf = gpd.GeoDataFrame(geometry=[gdf], crs=crs_use)
 
-        if gdf.crs is None:
-            gdf = gpd.GeoDataFrame(geometry=gdf, crs=crs_use)
+        if not gdf.empty:
+            if gdf.crs is None:
+                gdf = gpd.GeoDataFrame(geometry=gdf, crs=crs_use)
+
+            gdf_list[i] = gdf.to_crs(crs=crs_use)
+
+    if fill_figsize:
+        # Add an invisible rectangle that includes all of the previous
+        # content but keeps the aspect ratio of the given figsize
+        bounding_rectangle = bounding_rectangle_with_ratio(
+            pd.concat(gdf_list).union_all(),
+            fig_kwargs['figsize'][0]/fig_kwargs['figsize'][1])
+
+        gdf_list.append(gpd.GeoDataFrame(
+            geometry=[bounding_rectangle.boundary], crs=crs_use))
+        plt_kwargs.append(dict(linewidth=0))
+
+    fig_kwargs.setdefault('figsize', (20, 10))
+    fig_kwargs.setdefault('tight_layout', True)
+    fig, ax = plt.subplots(**fig_kwargs)
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    handles = []
+
+    for gdf, color, args in zip(gdf_list, colors[:len(gdf_list)], plt_kwargs):
+        if gdf.empty:
+            continue
 
         if 'column' not in args.keys():
             # gdf.plot() accepts only one of 'color' and 'column'
-            args.setdefault('color', color)
-        gdf.to_crs(crs=crs_use).plot(ax=ax, **args)
+            if 'facecolor' not in args.keys():
+                args.setdefault('color', color)
+            # Workaround for error in matplotlib backend_bases.get_capstyle()
+            # caused by https://github.com/e2nIEE/pandapipes/issues/775
+            # args.setdefault('capstyle', "butt")
+        gdf.plot(ax=ax, **args)
 
         # Unless the "columns" argument is used with gdf.plot(), by default
         # no legend is created. Create an artificial legend:
@@ -4611,18 +4666,64 @@ def plot_geometries(
                 handles.append(Patch(**args))
 
     if plot_basemap:
-        add_basemap(ax, crs=crs_use)
+        add_basemap(ax, crs=crs_use, provider=provider, **basemap_kwargs)
 
     if set_axis_off:
         ax.set_axis_off()
 
+    if set_limits_to_input_object is not None:
+        bounds_target = gdf_list[set_limits_to_input_object].total_bounds
+        ax.set_xlim(bounds_target[0], bounds_target[2])
+        ax.set_ylim(bounds_target[1], bounds_target[3])
+
     if len(handles) > 0:
-        plt.legend(handles=handles)
+        if legend_kwargs is None:
+            legend_kwargs = dict()
+        legend_kwargs.setdefault("handles", handles)
+        plt.legend(**legend_kwargs)
+
     plt.title(title)
     if save_path is not None:
-        custom_plot_save(save_path)
+        custom_plot_save(save_path, **save_kwargs)
     if show_plot:
         plt.show()
+    else:
+        plt.close()
+
+    return ax
+
+
+def bounding_rectangle_with_ratio(geom, ratio_width_height):
+    if isinstance(geom, gpd.GeoDataFrame) or isinstance(geom, gpd.GeoSeries):
+        geom = geom.union_all()
+
+    # Get the geometry's bounds
+    minx, miny, maxx, maxy = geom.bounds
+    width = maxx - minx
+    height = maxy - miny
+
+    # Adjust dimensions to match the desired ratio
+    current_ratio = width / height
+    if current_ratio > ratio_width_height:
+        # Too wide → increase height
+        new_height = width / ratio_width_height
+        height_diff = (new_height - height) / 2
+        miny -= height_diff
+        maxy += height_diff
+    else:
+        # Too tall → increase width
+        new_width = height * ratio_width_height
+        width_diff = (new_width - width) / 2
+        minx -= width_diff
+        maxx += width_diff
+
+    # Create rectangle polygon
+    return shapely.Polygon([
+        (minx, miny),
+        (maxx, miny),
+        (maxx, maxy),
+        (minx, maxy)
+    ])
 
 
 def custom_plot_save(filename, folder='', dpi=750,
