@@ -5498,8 +5498,9 @@ def plot_networkx_graph(G, node_size=1, arrowsize=2, width=0.5,
 
 
 
-def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
-                                     col_p_th='P_heat_max'):
+def apply_deterministic_simultaneity(
+        gdf_pipes, gdf_consumers, gdf_producers, invest_opt,
+        col_p_th='P_heat_max', static_simultaneity=1, show_plot=False):
     """Calculate deterministic simultaneity factor based on network structure.
 
     For each pipe segment, determine how many consumers are downstream and
@@ -5509,6 +5510,10 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
     is designed to supply the complete network on its own.
     In that case, the largest required thermal capacity for each pipe
     segment is selected.
+
+    The 'static' simultaneity factor is the value that was used for
+    the dhnx optimization process. We need to correct for that factor
+    if it was applied, when using the deterministic method instead.
     """
     logger.info("Apply deterministic simultaneity factors to pipes")
 
@@ -5600,6 +5605,7 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
         # based on the directed graph structure
         nodes_missing_x = []
         nodes_missing_y = []
+        idx_drop = []
         for idx, pipe in gdf_pipes.iterrows():
             # Get both endpoints
             node1 = pipe.geometry.coords[0]
@@ -5632,7 +5638,7 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
                     gdf_pipes.loc[idx, "capacity_consumers"] = node_data["capacity_consumers"]
                     gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"] = (
                         gdf_pipes.loc[idx, "capacity"]
-                        - node_data["capacity_consumers"]
+                        - node_data["capacity_consumers"] * static_simultaneity
                         )
                 else:
                     logger.warning(
@@ -5643,11 +5649,29 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
                 logger.warning(f"Error processing pipe {idx}: {e}")
                 continue
             except nx.NodeNotFound as e:
-                logger.warning(f"Error processing pipe {idx}: {e}")
-                for node in [node1, node2]:
-                    nodes_missing_x.append(node[0])
-                    nodes_missing_y.append(node[1])
-                continue
+                if pipe['capacity'] < 1e-2:
+                    # In a special case, the solver left an unconnected pipe
+                    # ending in the network, with a tiny capacity of 1e-6 kW.
+                    # Since that line segment is not connected to any
+                    # consumer, it cannot be found in the graph G (which is
+                    # constructed along the shortest producer-consumer
+                    # connections).
+                    # Drop the pipe segments where this occurs:
+                    idx_drop.append(idx)
+                    logger.warning(f"Error processing pipe {idx}: {e}")
+                elif "existing" in pipe.index and pipe["existing"] == 1:
+                    # Pre-existing pipe segments are not a result of the
+                    # optimization. They may not be connected to
+                    # any consumer and can be dropped
+                    # breakpoint()
+                    idx_drop.append(idx)
+                    logger.debug(f"Error processing pipe {idx}: {e}")
+                else:
+                    logger.warning(f"Error processing pipe {idx}: {e}")
+                    for node in [node1, node2]:
+                        nodes_missing_x.append(node[0])
+                        nodes_missing_y.append(node[1])
+                    continue
 
         if len(nodes_missing_x) > 0 and logger.isEnabledFor(logging.DEBUG):
             gdf_nodes_missing = gpd.GeoDataFrame(
@@ -5657,17 +5681,23 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
             save_geopackage(gdf_nodes_missing, 'debug_gdf_nodes_missing')
             save_geopackage(gdf_pipes, 'debug_gdf_pipes')
 
+        if len(idx_drop) > 0:
+            gdf_pipes = gdf_pipes.drop(index=idx_drop)
+
         return gdf_pipes
 
     # Keep only pipes with capacity > 0
     gdf_pipes = gdf_pipes[gdf_pipes["capacity"] > 0].copy()
+    # breakpoint()
     # Create undirected graph to find shortest paths
     G_undirected = momepy.gdf_to_nx(gdf_pipes, approach="primal")
+    G_undirected = nx.Graph(G_undirected)
     # Test for cycles in graph, which would prevent the following from working
     if not nx.is_forest(G_undirected):
-        plot_networkx_graph(G_undirected)
-        breakpoint()
-        raise ValueError("Graph contains loops/cycles, this is not allowed")
+        logger.error("Graph contains loops/cycles, this is not supported. ")
+        if show_plot:
+            plot_networkx_graph(G_undirected)
+        # breakpoint()
 
     if len(gdf_producers) > 1:
         logger.warning("'Deterministic simultaneity' method is only "
@@ -5707,6 +5737,7 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
     # point of view of the dominating producer, in order
     # to apply the simultaneity factor only to the 'capacity_consumers', and
     # update the total 'capacity' as the sum of them.
+    gdf_pipes_return = gdf_pipes_return.fillna({"capacity_consumers_0": 0})
     max_idx = np.nanargmax(gdf_pipes_return
                            .filter(like="capacity_consumers")
                            .to_numpy(), axis=1)
@@ -5720,6 +5751,20 @@ def apply_deterministic_simultaneity(gdf_pipes, gdf_consumers, gdf_producers,
         * gdf_pipes_return["simultaneity"]
         + gdf_pipes_return["capacity_loss_cumsum [kW]"]
         )
+
+    # If existing=1 was used to mark any pipe segments as
+    # previously existing (and thus not up for optimization in DHNx),
+    # some previous calculations need to be corrected.
+    # 1) 'capacity' is just the input capacity of the existing pipe
+    # 2) The above calculation of the cumulative sum of losses is invalid
+    #    because it assumes the total capacity was calculated by DHNx
+    if 'existing' in gdf_pipes_return.columns:
+        mask_existing = gdf_pipes_return['existing'].isin([True, 1, "1"])
+        if mask_existing.any():
+            gdf_pipes_return.loc[
+                mask_existing, 'capacity'] = gdf_pipes_return["capacity_orig"]
+            gdf_pipes_return.loc[
+                mask_existing, 'capacity_loss_cumsum [kW]'] = np.nan
 
     return gdf_pipes_return
 
