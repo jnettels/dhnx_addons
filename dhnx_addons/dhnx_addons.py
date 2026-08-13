@@ -4746,8 +4746,15 @@ def custom_plot_save(filename, folder='', dpi=750,
         extensions = [ext]
 
     for ext in extensions:
-        plt.savefig(filepath+ext, dpi=dpi, bbox_inches='tight',
-                    transparent=transparent)
+        try:
+            plt.savefig(filepath+ext, dpi=dpi, bbox_inches='tight',
+                        transparent=transparent)
+        except FileNotFoundError:
+            # On Windows, this exception can occur due to a maximum character
+            # limit of something like 256 for long paths.
+            # For some reason, the following already worked in such a case:
+            plt.savefig(os.path.abspath(filepath+ext), dpi=dpi,
+                        bbox_inches='tight', transparent=transparent)
 
 
 def plot_heated(gdf, col_heated='heated', **fig_kwargs):
