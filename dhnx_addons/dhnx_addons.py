@@ -6779,10 +6779,14 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
 def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
                        show_plot=False):
-    """Find shortest path from point_start to point_end in line network gdf."""
+    """Find shortest path from point_start to point_end in line network gdf.
+
+    Use networkx to find the shortest path, then sort the edges along
+    that path to ensure mixed directions in gdf do not cause issues.
+    """
     gdf['length'] = gdf.length
     G = momepy.gdf_to_nx(gdf, approach="primal")
-    # nx.draw(G, {n: [n[0], n[1]] for n in list(G.nodes)}, node_size=1)
+    # plot_networkx_graph(G)
 
     # Extract coordinates from point_start and point_end GeoDataFrames
     start = list(point_start.geometry.centroid.iloc[0].coords)[0]
@@ -6792,8 +6796,16 @@ def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
     shortest_path_nodes = nx.shortest_path(G, source=start, target=end,
                                            weight='length')
 
-    G_s = nx.subgraph(G, shortest_path_nodes)
-    # nx.draw(G_s, {n: [n[0], n[1]] for n in list(G_s.nodes)}, node_size=1)
+    G_s = nx.DiGraph(approach='primal')
+    for i in range(len(shortest_path_nodes) - 1):
+        u = shortest_path_nodes[i]
+        v = shortest_path_nodes[i + 1]
+
+        # Copy all edge attributes from G
+        edge_attrs = G.get_edge_data(u, v)[0]
+        G_s.add_edge(u, v, **edge_attrs)
+
+    # plot_networkx_graph(G_s)
 
     # Compute the distance from the start to each node in the shortest path
     cumulative_distances = {node: nx.shortest_path_length(
@@ -6805,7 +6817,7 @@ def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
     nodes_gdf, edges_gdf = momepy.nx_to_gdf(G_s)
     gdf_s = pd.merge(edges_gdf, nodes_gdf[['nodeID', distance_col]],
                      left_on='node_start', right_on='nodeID', how='left')
-    gdf_s = gdf_s.sort_values(distance_col).reset_index()
+    gdf_s.crs = gdf.crs
 
     if show_plot:
         plot_geometries(
