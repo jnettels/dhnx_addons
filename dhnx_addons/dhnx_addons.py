@@ -4499,7 +4499,7 @@ def download_streets_from_osm(
                       .union_all()
                       .convex_hull],
             crs=gdf_polygon.crs)
-    polygon = gdf_polygon.to_crs(epsg=4326).geometry[0]  # for osmnx
+    polygon = gdf_polygon.to_crs(epsg=4326).geometry.union_all()  # for osmnx
 
     # Download the street network data from OpenStreetMap
     streets = dict({'highway': highway_keys})
