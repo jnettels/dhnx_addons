@@ -58,7 +58,10 @@ class CBCInstaller:
         """
         # Get the latest release information from the GitHub API
         response = requests.get(
-            'https://api.github.com/repos/coin-or/Cbc/releases/latest')
+            # 'https://api.github.com/repos/coin-or/Cbc/releases/latest'
+            # Currently, 'latest' does not include the assets
+            'https://api.github.com/repos/coin-or/Cbc/releases/295923101'
+            )
         response_json = response.json()
 
         # Get the download URL for the CBC binary for Windows
