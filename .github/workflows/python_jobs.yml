@@ -45,7 +45,8 @@ jobs:
     - name: Run OpenStreetMap example workflow
       shell: pwsh  # Needed where conda env is used
       run: |
-        cd examples
+        conda develop ./src
+        cd ./examples
         python dhnx_example.py
 
   job_2:
