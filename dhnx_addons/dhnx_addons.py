@@ -259,12 +259,15 @@ def setup(log_level='INFO'):
     logger.setLevel(level=log_level.upper())  # Logger for this module
     logging.getLogger('osmnx').setLevel(level=log_level)
     logging.getLogger('dhnx').setLevel(level=log_level)
+    logging.getLogger('dhnx.optimization.precalc_hydraulic'
+                      ).setLevel(level="WARNING")
     logging.getLogger('lpagg').setLevel(level=log_level)
     logging.getLogger('lpagg.agg').setLevel(level=log_level)
     logging.getLogger('lpagg.VDI4655').setLevel(level=log_level)
     logging.getLogger('oemof.solph').setLevel(level=log_level)
     logging.getLogger('pyomo.core').setLevel(level=log_level)
-    logging.getLogger('pyogrio._io').setLevel(level=log_level)
+    logging.getLogger('pyogrio._io').setLevel(level="WARNING")
+    logging.getLogger('pandapipes').setLevel(level="WARNING")
 
     # Loading the pandapipes library modifies global pandas options
     # for printing dataframes. Set them back to the default values
@@ -280,12 +283,27 @@ def setup(log_level='INFO'):
     # Silencing specific FutureWarning by message content
 
     warnings.filterwarnings(
+        action="ignore", module='pandas',
+        message=("The behavior of DataFrame concatenation with empty or "
+                 "all-NA entries is deprecated"), category=FutureWarning)
+    warnings.filterwarnings(
         action="ignore", module='oemof.network',
         message=("Usage of oemof.network.Component is deprecated. "
                  "Use oemof.network.Node instead."), category=FutureWarning)
+    # warnings.filterwarnings(
+    #     action="ignore", module='dhnx',
+    #     message=("Argument 'welding' is deprecated and now "
+    #              "overwrites 'simplify'"), category=FutureWarning)
     warnings.filterwarnings(
         action="ignore", module='contextily',
         message=("The inferred zoom level of "), category=UserWarning)
+    warnings.filterwarnings(
+        action="ignore", module='networkx',
+        message=("Approach is not set. Defaulting to 'primal'"),
+        category=UserWarning)
+
+    # Only for debugging: raise all UserWarnings to actual errors
+    # warnings.filterwarnings(action="error", category=UserWarning)
 
 
 def workflow_example_openstreetmap(
