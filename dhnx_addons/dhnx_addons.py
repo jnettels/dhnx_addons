@@ -5332,8 +5332,9 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
     meaningful amounts of energy, but form loops in the network which prevent
     the following process from working.
     """
+    network_backup = copy_dhnx_network(network)
     if exp is None:
-        lim_capacity = 0  # Capacity limit becomes 1e-5, 1e-4, 1e-3 ...
+        lim_capacity = 0  # Capacity limit becomes 1e-5, 1e-4, 1e-3 kW ...
         exp_next = -5  # ... for each recursive call of this function
     else:
         lim_capacity = pow(10, exp)  # Capacity limit becomes 1e-5, 1e-4, 1e-3
@@ -5341,35 +5342,85 @@ def re_run_optimization(network, invest_opt, exp=None, **settings):
 
     results_edges = network.results.optimization['components']['pipes']
     gdf_pipes = network.components['pipes'].copy()
-    gdf_pipes = gdf_pipes.loc[results_edges["capacity"] > 0]
+    try:
+        gdf_pipes = filter_pipes_by_capacity(gdf_pipes, results_edges, 0)
+    except Exception:
+        breakpoint()
+
     G = momepy.gdf_to_nx(gdf_pipes, approach="primal")
 
     if not nx.is_connected(G):
-        plot_networkx_graph(G)
+        # plot_networkx_graph(G)
         # SG = G.subgraph(max(nx.connected_components(G), key=len))
         # plot_networkx_graph(SG)
         # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
-        raise ValueError("The resulting network is not fully connected. "
-                         "Cannot continue.")
+        if len(network.components['producers'])==1:
+            raise ValueError("The resulting network is not fully connected. "
+                             "Cannot continue.")
+        else:
+            # If each sub-network has its own producer, it might
+            # actually be a valid solution.
+            logger.warning("Resulting network is split into multiple parts. "
+                           "With more than one producer this might be fine.")
+            return
 
-    if not nx.is_forest(G):
-        # nx.is_forest() is False if graph has cycles
+    if not nx.is_forest(G):  # nx.is_forest() is False if graph has cycles
+        if lim_capacity >= 0.001:  # Stop at 0.001 kW
+            logger.warning("Optimization result network contains cycles, "
+                           "but result is returned anyway")
+            return
         logger.warning("Optimization result network contains cycles. Run "
                        "again with previous result as starting point, after "
                        f"keeping only pipes with capacity>{lim_capacity} kW.")
 
-        gdf_pipes = gdf_pipes.loc[results_edges["capacity"] > lim_capacity]
+        gdf_pipes = filter_pipes_by_capacity(gdf_pipes, results_edges, lim_capacity)
         # Use the previous result as the input, then re-run the optimization
         network.components['pipes'] = gdf_pipes
+
+        settings = settings.copy()
+        if len(network.sequences['consumers']['heat_flow']) > 1:
+            # The following is only required when a time series is used!!!
+            # If "simultaneity" was used in the settings, do not use it again.
+            # Otherwise demand gets reduced over and over with each iteration
+            settings.pop("simultaneity", None)
+
         if settings["solver"] == 'gurobi':
             # Force Gurobi to be more careful in numerical computations
             settings['solver_cmdline_options']['NumericFocus'] = 3
-        network.optimize_investment(invest_options=invest_opt, **settings)
 
-        re_run_optimization(network, invest_opt, exp_next, **settings)
+            """
+            # Switch from gurobi to cbc solver
+            time_limit = settings.get("solver_cmdline_options", {}).get("TimeLimit", None)
+            settings["solver"] = 'cbc'
+            if time_limit is not None:
+                settings["solver_cmdline_options"]['seconds'] = time_limit
+                settings["solver_cmdline_options"].pop("TimeLimit")
+                settings["solver_cmdline_options"].pop("NumericFocus")
+                settings["simultaneity"] = 0.6
+            """
+
+        try:
+            network.optimize_investment(invest_options=invest_opt, **settings)
+            re_run_optimization(network, invest_opt, exp_next, **settings)
+        except ValueError as e:
+            logger.warning(e)
+            logger.warning("During re-runs of the optimization an exception "
+                           "occured. Restoring the previous network result.")
+            # Restore backup to 'network' object in place.
+            copy_dhnx_network_internals(network_backup, network)
+            return
+
 
     # The 'network' object is modified in place and contains the result
     return
+
+
+def filter_pipes_by_capacity(gdf_pipes, results_edges, lim_capacity):
+    """Keep only the pipe segments exceeding a minimum capacity."""
+    results_edges_keep = results_edges.loc[
+        results_edges["capacity"] > lim_capacity]
+    gdf_pipes = gdf_pipes.loc[results_edges_keep.index]
+    return gdf_pipes
 
 
 def copy_dhnx_network(network):
