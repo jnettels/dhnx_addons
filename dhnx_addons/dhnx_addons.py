@@ -5134,12 +5134,20 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                      "Adding larger DNs to the list of available pipes "
                      "might solve the error.\n"
                      "- The given producers, if limited in their capacity, "
-                     "cannot provide the required capacity.")
-        breakpoint()
-        # save_geopackage(network.components['forks'], 'debug_forks')
-        # save_geopackage(network.components['pipes'], 'debug_pipes')
-        # save_geopackage(network.components['consumers'], 'debug_consumers')
-        # save_geopackage(gdf_lines_streets, 'debug_streets')
+                     "cannot provide the required capacity.\n"
+                     "- If existing pipes are used, one or more might be "
+                     "a bottleneck where their given capacity cannot carry "
+                     "the required flow to the connected consumers.\n\n"
+                     "The following files are saved to help investigate "
+                     "the cause of the problem:\n"
+                     "- debug_forks.gpkg,\n"
+                     "- debug_pipes.gpkg,\n"
+                     "- debug_consumers.gpkg"
+                     )
+        save_geopackage(network.components['forks'], 'debug_forks')
+        save_geopackage(network.components['pipes'], 'debug_pipes')
+        save_geopackage(network.components['consumers'], 'debug_consumers')
+        raise e
 
     # Part IV: Check the results #############
     if use_deterministic_simultaneity:
