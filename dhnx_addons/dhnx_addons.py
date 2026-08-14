@@ -179,17 +179,10 @@ import networkx as nx
 import momepy
 import requests
 
-try:
-    from . import cbc_installer  # local import
-except ImportError:
-    import cbc_installer  # local import for running dhnx_addons.py
+from . import cbc_installer  # local import
+from . import dhnx_lib_pandapipes  # local import
+from . import custom_basemaps  # local import
 
-try:
-    from . import elevation  # local import
-    from . import custom_basemaps  # local import
-except ImportError:
-    import elevation  # local import for running dhnx_addons.py
-    import custom_basemaps  # local import for running dhnx_addons.py
 
 logger = logging.getLogger(__name__)  # Create a logger for this module
 
@@ -256,19 +249,12 @@ except ImportError as e:
                    "'conda install lpagg -c jnettels'")
 
 
-def main():
-    """Run an example main method."""
-    setup()
-    logger.info("Welcome to the 'DHNx Addons' example main method")
-    # workflow_example_openstreetmap(show_plot=True)
-    workflow_example_openstreetmap(show_plot=False)
-
-
 def setup(log_level='INFO'):
     """Set up the logger and other settings."""
     logging.basicConfig(
         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-        datefmt='%H:%M:%S')
+        # datefmt='%H:%M:%S',
+        )
 
     logger.setLevel(level=log_level.upper())  # Logger for this module
     logging.getLogger('osmnx').setLevel(level=log_level)
@@ -310,6 +296,8 @@ def workflow_example_openstreetmap(
         crs_default='EPSG:25832',
         ):
     """Run an example workflow from OpenStreetMap data."""
+    logger.info("Welcome to the 'DHNx Addons' example main method")
+
     if gdf_area is None:
         gdf_area = load_example_area()
 
@@ -6776,7 +6764,3 @@ def qgis_drape(path_input_layer, path_input_raster, path_output):
         '--OFFSET=0',
         f'--OUTPUT={path_output}',
         ])
-
-
-if __name__ == '__main__':
-    main()
