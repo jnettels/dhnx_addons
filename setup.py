@@ -26,7 +26,7 @@ DHNx Addons
 =====
 
 This package contains a collection of functions useful for workflows with
-DHNx (https://github.com/oemof/DHNx), 
+DHNx (https://github.com/oemof/DHNx),
 LPagg (https://github.com/jnettels/lpagg),
 and GIS-data in general in the context of municipal heat planning.
 
@@ -70,13 +70,16 @@ setup(
         'demandlib @ https://github.com/jnettels/demandlib/archive/features/add-vdi-from-lpagg.tar.gz', # demandlib (custom fork)
         'dhnx @ https://github.com/oemof/DHNx/archive/dev.tar.gz',  # dhnx (branch 'dev')
         'oemof.solph',
-        # 'pandapipes @ https://github.com/e2nIEE/pandapipes/archive/v0.11.0.tar.gz',
-        'pandapipes',
+        # 'pandapipes',
+        'pandapipes @ https://github.com/jnettels/pandapipes/archive/fix/capstyle_setting.tar.gz',
         'pandapower',
     ],
     extras_require={},
     packages=['dhnx_addons'],
-    package_data={'dhnx_addons': ['input/alkis_to_bdew.csv'],
+    package_data={'dhnx_addons': [
+        'src/input/alkis_to_bdew.csv',
+        'src/input/Technikkatalog_Wärmeplanung_Version_1.1_August24_CC-BY.xlsx',
+        ],
                   },
     entry_points={},
 )
