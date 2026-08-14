@@ -19,3 +19,4 @@ from .dhnx_addons import *
 from .cbc_installer import *
 from .elevation import *
 from .custom_basemaps import *
+from .dhnx_lib_pandapipes import *
