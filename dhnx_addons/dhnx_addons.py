@@ -369,6 +369,15 @@ def workflow_example_openstreetmap(
         # log_level='debug',
         # unique_profile_workflow=False,
         )
+
+    # Store the simultaneity factor resulting from lpagg
+    df_sf = pd.DataFrame.from_dict(lpagg_cfg.get(
+        'simultaneity_factor_results', dict()), orient='index')
+    if not df_sf.empty:
+        sf_lpagg = df_sf.loc['GLF', 'th']
+    else:
+        sf_lpagg = 1
+
     save_path = './result_dhnx'
 
     save_geojson(gdf_houses, 'consumers_polygon', path=save_path,
@@ -438,7 +447,8 @@ def workflow_example_openstreetmap(
         # df_load_ts_slice=df_load_ts_slice,  # Use thermal power time series
         # col_p_th=None,  # Column name for (static) thermal power
         col_p_th='P_heat_max',  # Column name for (static) thermal power
-        simultaneity="calculated",
+        use_deterministic_simultaneity=True,
+        simultaneity=sf_lpagg,
         n_conn=1,
         # reset_index=False,
         method='boundary',
@@ -459,12 +469,7 @@ def workflow_example_openstreetmap(
     # the time of overall maximum thermal power demand in df_load_ts_slice
     # or the maximum thermal power multiplied with a simultaneity factor
     # as an input for the thermal power of each consumer
-    df_sf = pd.DataFrame.from_dict(lpagg_cfg.get(
-        'simultaneity_factor_results', dict()), orient='index')
-    if not df_sf.empty:
-        sf_lpagg = df_sf.loc['GLF', 'th']
-    else:
-        sf_lpagg = 1
+
 
     p_pipes, p_forks, p_consumers, p_producers = (
         dhnx_lib_pandapipes.pandapipes_run(
@@ -4817,6 +4822,8 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              col_p_th='P_heat_max',
              bidirectional_pipes=False,
              simultaneity=1,
+             use_deterministic_simultaneity=False,
+             a_simul=None,
              reset_index=True,
              n_conn=1,
              n_conn_prod=1,
@@ -4824,6 +4831,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
              welding=True,
              solver=None,
              allow_nonoptimal=True,  # Allow non-optimal solutions
+             return_existing=False,
              solve_kw={'tee': True},  # print solver output
              solver_cmdline_options=None,
              T_FF=80,
@@ -4887,13 +4895,17 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         used by DHNx. This simply reduces the thermal power defined by
         ``col_p_th``, without taking any actual simultaneity effects into
         account. Use with care, since this is not realistic.
-
-        If instead the string "calculated" is used, the simultaneity factor at
+        The default is 1 (equals no simultaneity).
+    use_deterministic_simultaneity : boolean, optional
+        If True, the simultaneity factor at
         each fork is calculated as a fixed function of the number of
         downstream consumers. The required thermal capacity of the connected
         pipe is reduced accordingly.
-
-        The default is 1 (equals no simultaneity).
+    a_simul : float, optional
+        Asymptotic value in deterministic simultaneity calculation.
+        Can be used to adapt the default distribution from literature.
+        See ``simultaneity_factor()``.
+        Default is None (which means using a~=0.45).
     reset_index : boolean, optional
         DHNx requires resetting the index of the input GeoDataFrames.
         Skipping this is currently not unsupported. The default is True.
@@ -4928,6 +4940,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         such cases in dhnx_addons, e.g. with ``re_run_optimization()``.
         If ``False``, an exception will cause the program to abort.
         Default is True.
+    return_existing : bool
+        Return existing pipes in the resulting network. Only applies if
+        ``existing=1`` was used for any input pipe segments. Default is False.
     solve_kw : dict, optional
         Special keywords used for the solver. {'tee': True}, prints the solver
         output to the console, while {'tee': False} hides it.
@@ -4989,8 +5004,21 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     if simultaneity == "calculated":
         use_deterministic_simultaneity = True
         simultaneity = 1
-    else:
-        use_deterministic_simultaneity = False
+        logger.warning('simultaneity="calculated" is deprecated, set '
+                       '"use_deterministic_simultaneity=True" instead.')
+
+    # Perform some safety checks and cleaning on the input data
+    # breakpoint()
+    gdf_lines_streets.geometry = gdf_lines_streets.remove_repeated_points()
+
+    if gdf_poly_houses.has_z.any():
+        # Unique issues can occur with the buiding connections if gdf_houses
+        # has actual 3d data e.g. when using LoD2-Models.
+        # Convert it to a planar representation of the building
+        gdf_poly_houses = gdf_poly_houses.copy()
+        gdf_poly_houses.geometry = [
+            gdf_poly_houses.loc[[i]].polygonize().union_all()
+            for i in gdf_poly_houses.index]
 
     # process the geometry
     tn_input = dhnx.gistools.connect_points.process_geometry(
@@ -5115,6 +5143,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         bidirectional_pipes=bidirectional_pipes,
         simultaneity=simultaneity,
         allow_nonoptimal=allow_nonoptimal,
+        return_existing=return_existing,
         )
     if df_load_ts_slice is not None:
         settings["heat_demand"] = "series"
@@ -5164,7 +5193,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     # pipelines are the same, since no additional costs (e.g. for energy
     # sources) are considered in this example.
 
-    # add the investment results to the geoDataFrame
+    # add the investment results to the GeoDataFrame
     gdf_pipes = network.components['pipes'].copy()
     cols_drop = [c for c in results_edges.columns if c in gdf_pipes]
     gdf_pipes = gdf_pipes.drop(columns=cols_drop)  # Drop duplicate columns
@@ -5172,7 +5201,9 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     if use_deterministic_simultaneity:
         gdf_pipes = apply_deterministic_simultaneity(
-            gdf_pipes, tn_input['consumers'], tn_input['producers'], col_p_th)
+            gdf_pipes, tn_input['consumers'], tn_input['producers'],
+            invest_opt, bidirectional_pipes, static_simultaneity=simultaneity,
+            show_plot=show_plot, a_simul=a_simul)
 
     gdf_pipes = apply_DN(gdf_pipes, df_DN)  # Apply DN from capacity
     gdf_pipes = get_total_costs_and_losses(gdf_pipes, df_DN)
@@ -6332,6 +6363,7 @@ def get_pipe_input_data(
 
     # Now the maximum power capacity can be calculated
     df = calc_pipes_p_max(df)
+    df = df.round(6)
 
     return df
 
@@ -6367,7 +6399,7 @@ def lineralize_pipe_input(
         df_invest_opt_pipes = pd.DataFrame({
             "label_3": "pipe-generic",
             "active": 1,
-            "nonconvex": 1,
+            "nonconvex": 1,  # 1, since invest has a fixed cost component
             "l_factor": constants_loss[0],
             "l_factor_fix": constants_loss[1],
             "cap_max": df['P_max [kW]'].max(),
@@ -6643,7 +6675,6 @@ def derive_dhnx_pipe_invest_options(filename=None):
     plt.show()
 
 
-
 def apply_DN(gdf_pipes, df_DN):
     """Apply norm diameter of pipes in gdf_pipes from capacity in df_DN."""
     # Now apply the norm diameter to the pipes dataframe
@@ -6671,7 +6702,7 @@ def apply_DN(gdf_pipes, df_DN):
     cols_select = ['DN', 'Inner diameter [m]', 'Roughness [mm]',
                    'U-value [W/mK]', 'Costs [€/m]', 'T_forward [°C]',
                    'T_return [°C]', 'T_ground [°C]', 'T_mean [°C]',
-                   'Max delta p [Pa/m]', 'v_max [m/s]', 'Mass flow [kg/s]',
+                   'Max delta p [Pa/m]', 'v_max [m/s]', 'mdot_max [kg/s]',
                    'P_max [kW]', 'P_loss [kW/m]']
     cols_select = [c for c in cols_select if c in df_DN.columns]
     gdf_pipes = gdf_pipes.join(
@@ -6722,6 +6753,7 @@ def get_total_costs_and_losses(
 
     # Calculate the total costs and losses from specifics values and length
     try:
+        # TODO calculate only if existing==0
         gdf_pipes['Cost [€]'] = (_gdf_pipes['Costs [€/m]']
                                  * gdf_pipes.length
                                  * _gdf_pipes['f_length_cost'])
@@ -6746,10 +6778,12 @@ def calc_pipes_p_max(df):
             d_i=row['Inner diameter [m]'],
             T_average=row['T_mean [°C]'],
             k=row['Roughness [mm]'],
-            p_max=row['Max delta p [Pa/m]']), axis=1)
+            p_max=row['Max delta p [Pa/m]'],
+            calculation='pandapipes',
+            ), axis=1)
 
     # Calculate the maximum mass flow per pipe
-    df['Mass flow [kg/s]'] = df.apply(
+    df['mdot_max [kg/s]'] = df.apply(
         lambda row: dhnx.optimization.precalc_hydraulic.calc_mass_flow(
             v=row['v_max [m/s]'], di=row['Inner diameter [m]'],
             T_av=row['T_mean [°C]'],
@@ -6760,7 +6794,7 @@ def calc_pipes_p_max(df):
         lambda row: dhnx.optimization.precalc_hydraulic.calc_power(
             T_vl=row['T_forward [°C]'],
             T_rl=row['T_return [°C]'],
-            mf=row['Mass flow [kg/s]']
+            mf=row['mdot_max [kg/s]']
             ) * 0.001,  # Unit conversion from W to kW
         axis=1)
 
