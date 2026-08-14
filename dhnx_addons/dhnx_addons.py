@@ -5519,276 +5519,690 @@ def plot_networkx_graph(G, node_size=1, arrowsize=2, width=0.5,
     plt.show()
 
 
+def plot_networkx_processing_step(
+        G,
+        current_node=None,
+        incoming_edges=None,
+        outgoing_edges=None,
+        edge_label=None):
+
+    plt.figure(figsize=(12, 12))
+    pos = {n: n for n in G.nodes()}
+    nx.draw_networkx_nodes(G, pos, node_size=20, alpha=0.3)  # all nodes
+    nx.draw_networkx_edges(G, pos, alpha=0.2, arrows=True)  # all edges
+
+    if edge_label:
+        edge_labels = {(u, v): f"{d.get(edge_label, 0):.0f}"
+                       for u, v, d in G.edges(data=True)}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+    if current_node is not None:  # current node
+        nx.draw_networkx_nodes(G, pos, nodelist=[current_node], node_size=20)
+    if outgoing_edges:  # downstream edges
+        nx.draw_networkx_edges(G, pos, edgelist=outgoing_edges,# width=3,
+                               arrows=True)
+    if incoming_edges:  # upstream edges
+        nx.draw_networkx_edges(G, pos, edgelist=incoming_edges, #width=5,
+                               arrows=True)
+    plt.axis("equal")
+    plt.show()
+
 
 def apply_deterministic_simultaneity(
         gdf_pipes, gdf_consumers, gdf_producers, invest_opt,
-        col_p_th='P_heat_max', static_simultaneity=1, show_plot=False):
+        bidirectional_pipes, static_simultaneity=1, show_plot=False,
+        a_simul=None):
     """Calculate deterministic simultaneity factor based on network structure.
 
     For each pipe segment, determine how many consumers are downstream and
     apply a simultaneity factor based on that number.
-
-    This is compatible with multiple producers, but only if each of them
-    is designed to supply the complete network on its own.
-    In that case, the largest required thermal capacity for each pipe
-    segment is selected.
-
-    The 'static' simultaneity factor is the value that was used for
-    the dhnx optimization process. We need to correct for that factor
-    if it was applied, when using the deterministic method instead.
     """
-    logger.info("Apply deterministic simultaneity factors to pipes")
-
-    if not col_p_th in gdf_consumers.columns:
-        col_p_th = 'P_heat_max'  # TODO fix workaround
-        # raise ValueError(f"Column name for peak power '{col_p_th}' "
-        #                  "not found in consumers GeoDataFrame.")
-
-    def run_single_producer(producer, gdf_consumers, gdf_pipes, G_undirected):
-        """Run function for a single producer.
-
-        From the perspektive of a given producer, convert an undirected
-        heating network into a directed network downstream towards the
-        consumers.
-        For each pipe segment, determine how many consumers are downstream and
-        calculate a simultaneity factor based on that number.
-        """
-        # Get all consumer nodes
-        try:
-            consumer_nodes = (gdf_consumers
-                              .intersection(gdf_pipes.union_all())
-                              .geometry.apply(lambda c: (c.x, c.y))
-                              )
-        except AttributeError as e:
-            logger.error(e)
-            breakpoint()
-            # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
-            # save_geopackage(gdf_consumers, 'debug_gdf_consumers')
-            # save_geopackage(consumer_nodes, 'debug_gdf_consumers')
-
-        # Create directed graph based on shortest paths from producer to consumer.
-        # For each consumer, find shortest path from producer and add those edges
-        # to the directed graph with correct direction
-        G = nx.DiGraph()
-        for consumer in consumer_nodes:
-            try:
-                path = nx.shortest_path(G_undirected, producer, consumer)
-                # Add edges along path with direction from producer to consumer
-                for i in range(len(path) - 1):
-                    G.add_edge(path[i], path[i + 1])
-            except nx.NetworkXNoPath:
-                logger.warning(
-                    f"No path found from producer to consumer at {consumer}"
-                )
-                continue
-
-        if not nx.is_directed_acyclic_graph(G):
-            plot_networkx_graph(G)
-            breakpoint()
-
-        # Initialize dict to store number of downstream consumers for each node
-        node_dict = {}
-
-        # For each node, count actual downstream consumers
-        for node in G.nodes():
-            # Get all nodes reachable from this node (downstream)
-            try:
-                descendants = nx.descendants(G, node)
-                if len(descendants) == 0:  # Node has no more descentants
-                    descendants = [node]  # Node must be a consumer
-                # Count how many descendants are consumers
-                descendant_consumers = set(descendants) & set(consumer_nodes)
-                n_consumers = len(descendant_consumers)
-
-                gdf_descendant_consumers = gdf_consumers[gdf_consumers.intersects(
-                    shapely.MultiPoint(list(descendant_consumers)))]
-
-                # Calculate simultaneity factor based on number of consumers
-                simultaneity = simultaneity_factor(n_consumers)
-
-                node_dict[node] = {
-                    "n_consumers": n_consumers,
-                    "simultaneity": simultaneity,
-                    "capacity_consumers": gdf_descendant_consumers[col_p_th].sum(),
-                }
-            except nx.NetworkXError:
-                continue
-
-        df_nodes = pd.DataFrame.from_dict(node_dict, orient="index")
-        df_nodes.index = df_nodes.index.set_names(["x", "y"])
-        df_nodes = df_nodes.reset_index()
-        gdf_nodes = gpd.GeoDataFrame(
-            geometry=gpd.points_from_xy(df_nodes["x"], df_nodes["y"]),
-            data=df_nodes[["n_consumers", "simultaneity", "capacity_consumers"]],
-            crs=gdf_pipes.crs,
-        )
-
-        # For each pipe, get both endpoints and determine which one is upstream
-        # based on the directed graph structure
-        nodes_missing_x = []
-        nodes_missing_y = []
-        idx_drop = []
-        for idx, pipe in gdf_pipes.iterrows():
-            # Get both endpoints
-            node1 = pipe.geometry.coords[0]
-            node2 = pipe.geometry.coords[-1]
-
-            # Check which node is upstream by seeing if one is ancestor of other
-            try:
-                # If node1 can reach node2 through directed graph, it is upstream
-                if nx.has_path(G, node1, node2):
-                    downstream_node = node2
-                # Otherwise node2 must be upstream (if pipe is part of valid path)
-                elif nx.has_path(G, node2, node1):
-                    downstream_node = node1
-                else:
-                    # If neither can reach the other, pipe isn't on a valid path
-                    logger.warning(f"Pipe {idx} not on valid path from producer "
-                                   "to any consumer")
-                    continue
-
-                # Find node data for the downstream end of pipe
-                matching_nodes = gdf_nodes[
-                    gdf_nodes.intersects(shapely.Point(downstream_node))
-                ]
-
-                if not matching_nodes.empty:
-                    node_data = matching_nodes.iloc[0]
-                    gdf_pipes.loc[idx, "capacity_orig"] = gdf_pipes.loc[idx, "capacity"]
-                    gdf_pipes.loc[idx, "simultaneity"] = node_data["simultaneity"]
-                    gdf_pipes.loc[idx, "n_consumers"] = node_data["n_consumers"]
-                    gdf_pipes.loc[idx, "capacity_consumers"] = node_data["capacity_consumers"]
-                    gdf_pipes.loc[idx, "capacity_loss_cumsum [kW]"] = (
-                        gdf_pipes.loc[idx, "capacity"]
-                        - node_data["capacity_consumers"] * static_simultaneity
-                        )
-                else:
-                    logger.warning(
-                        f"No node data found for upstream end of pipe {idx}"
-                    )
-
-            except nx.NetworkXError as e:
-                logger.warning(f"Error processing pipe {idx}: {e}")
-                continue
-            except nx.NodeNotFound as e:
-                if pipe['capacity'] < 1e-2:
-                    # In a special case, the solver left an unconnected pipe
-                    # ending in the network, with a tiny capacity of 1e-6 kW.
-                    # Since that line segment is not connected to any
-                    # consumer, it cannot be found in the graph G (which is
-                    # constructed along the shortest producer-consumer
-                    # connections).
-                    # Drop the pipe segments where this occurs:
-                    idx_drop.append(idx)
-                    logger.warning(f"Error processing pipe {idx}: {e}")
-                elif "existing" in pipe.index and pipe["existing"] == 1:
-                    # Pre-existing pipe segments are not a result of the
-                    # optimization. They may not be connected to
-                    # any consumer and can be dropped
-                    # breakpoint()
-                    idx_drop.append(idx)
-                    logger.debug(f"Error processing pipe {idx}: {e}")
-                else:
-                    logger.warning(f"Error processing pipe {idx}: {e}")
-                    for node in [node1, node2]:
-                        nodes_missing_x.append(node[0])
-                        nodes_missing_y.append(node[1])
-                    continue
-
-        if len(nodes_missing_x) > 0 and logger.isEnabledFor(logging.DEBUG):
-            gdf_nodes_missing = gpd.GeoDataFrame(
-                geometry=gpd.points_from_xy(nodes_missing_x, nodes_missing_y),
-                crs=gdf_pipes.crs,
-            )
-            save_geopackage(gdf_nodes_missing, 'debug_gdf_nodes_missing')
-            save_geopackage(gdf_pipes, 'debug_gdf_pipes')
-
-        if len(idx_drop) > 0:
-            gdf_pipes = gdf_pipes.drop(index=idx_drop)
-
-        return gdf_pipes
-
     # Keep only pipes with capacity > 0
     gdf_pipes = gdf_pipes[gdf_pipes["capacity"] > 0].copy()
-    # breakpoint()
+
+    if not bidirectional_pipes:
+        # Create directed graph based on 'direction' attribute
+        G, gdf_pipes = gdf_to_nx_directed(gdf_pipes)
+
+        gdf_pipes_res = apply_deterministic_simultaneity_to_directed_graph(
+            G, gdf_pipes, gdf_consumers, invest_opt,
+            static_simultaneity=static_simultaneity, show_plot=show_plot,
+            a_simul=a_simul)
+
+    else:
+        # If bidirectional_pipes is True, the 'direction' attribute
+        # is not reliable.
+
+        # This is compatible with multiple producers, but only if each of them
+        # is designed to supply the complete network on its own.
+        # In that case, the largest required thermal capacity for each pipe
+        # segment is selected.
+        gdf_pipes_res = apply_deterministic_simultaneity_to_multiple_producers(
+            gdf_pipes, gdf_consumers, gdf_producers, invest_opt,
+            static_simultaneity=static_simultaneity, show_plot=show_plot,
+            a_simul=a_simul)
+
+    return gdf_pipes_res
+
+
+def apply_deterministic_simultaneity_to_multiple_producers(
+        gdf_pipes, gdf_consumers, gdf_producers, invest_opt,
+        static_simultaneity=1, show_plot=False,
+        a_simul=None):
+
     # Create undirected graph to find shortest paths
-    G_undirected = momepy.gdf_to_nx(gdf_pipes, approach="primal")
-    G_undirected = nx.Graph(G_undirected)
+    G_undirected = momepy.gdf_to_nx(gdf_pipes, approach="primal",
+                                    preserve_index=True, multigraph=False)
+    # G_undirected = nx.Graph(G_undirected)
     # Test for cycles in graph, which would prevent the following from working
     if not nx.is_forest(G_undirected):
-        logger.error("Graph contains loops/cycles, this is not supported. ")
+        logger.warning("Graph contains loops/cycles, this may cause issues")
         if show_plot:
             plot_networkx_graph(G_undirected)
-        # breakpoint()
 
     if len(gdf_producers) > 1:
         logger.warning("'Deterministic simultaneity' method is only "
                        "supported for multiple producers, if each "
                        "is able to supply the whole network.")
 
+    cols_compare = ["simultaneity", "n_consumers", "capacity_consumers",
+                    "capacity_loss_cumsum [kW]", "capacity", "flow", "losses",
+                    "flow_diff_simultaneity"]
+
+    gdf_pipes_res = gdf_pipes.copy()
+    temp_cols = []
+    for i, idx in enumerate(gdf_producers.index):
+        gdf_producer = gdf_producers.loc[[idx]]
+        G_i = get_directed_graph_from_shortest_path(
+            gdf_producer, gdf_consumers, gdf_pipes.copy(), G_undirected)
+
+        gdf_pipes_i = apply_deterministic_simultaneity_to_directed_graph(
+            G_i, gdf_pipes, gdf_consumers, invest_opt,
+            static_simultaneity=static_simultaneity, show_plot=show_plot,
+            a_simul=a_simul)
+
+        gdf_pipes_i.index.set_names(gdf_pipes.index.name, inplace=True)
+
+        gdf_pipes_i = gdf_pipes_i[cols_compare]
+        for column in cols_compare:
+            col_i = f"{column}_{i}"
+            temp_cols.append(col_i)
+            gdf_pipes_i = gdf_pipes_i.rename(columns={column: col_i})
+
+        gdf_pipes_res = gdf_pipes_res.join(gdf_pipes_i)
+
+    # Each gdf_pipes_i represents the condition of the network
+    # from the point of view of one producer. In order to allow supply
+    # to all consumers from all producers, the largest 'capacity_consumers'
+    # has to be detected for each pipe segment. We also store 'n_consumers',
+    # 'simultaneity', etc. of that case.
+    # The cumulative sum of heat losses of all pipes downstream of a given
+    # pipe ("capacity_loss_cumsum [kW]") also has to be selected from
+    # point of view of the dominating producer.
+    gdf_pipes_res = gdf_pipes_res.fillna({"capacity_consumers_0": 0})
+    max_idx = np.nanargmax(gdf_pipes_res
+                           .filter(like="capacity_consumers_")
+                           .to_numpy(), axis=1)
+
+    for col in cols_compare:
+        gdf_pipes_res[col] = (
+            gdf_pipes_res
+            .filter(regex=rf'{col.replace("[", r"\[").replace("]", r"\]")}_\d')
+            .to_numpy()
+            [np.arange(len(gdf_pipes_res)), max_idx]
+            )
+
+    gdf_pipes_res.drop(columns=temp_cols, inplace=True)
+
+    return gdf_pipes_res
+
+
+def get_directed_graph_from_shortest_path(
+        gdf_producer, gdf_consumers, gdf_pipes, G_undirected):
+    """Run function for a single producer.
+
+    From the perspektive of a given producer, convert an undirected
+    heating network into a directed network downstream towards the
+    consumers.
+    For each pipe segment, determine how many consumers are downstream and
+    calculate a simultaneity factor based on that number.
+    """
     # Get producer node as starting point
-    producer_nodes = (gdf_producers
+    producer = (gdf_producer
+                .intersection(gdf_pipes.union_all())
+                .geometry.apply(lambda c: (c.x, c.y))
+                )
+    if len(producer) > 1:
+        raise ValueError("Function is only supported for single producer")
+
+    producer = producer.values[0]
+
+    # Get all consumer nodes
+    try:
+        consumer_nodes = (gdf_consumers
+                          .intersection(gdf_pipes.union_all())
+                          .geometry.apply(lambda c: (c.x, c.y))
+                          )
+    except AttributeError as e:
+        logger.error(e)
+        breakpoint()
+        # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
+        # save_geopackage(gdf_consumers, 'debug_gdf_consumers')
+        # save_geopackage(consumer_nodes, 'debug_gdf_consumers')
+
+    # Create directed graph based on shortest paths from producer to consumer.
+    # For each consumer, find shortest path from producer and add those edges
+    # to the directed graph with correct direction
+    G = nx.DiGraph(approach="primal")
+    for consumer in consumer_nodes:
+        try:
+            path = nx.shortest_path(G_undirected, producer, consumer)
+            # Add edges along path with direction from producer to consumer
+            for i in range(len(path) - 1):
+                u, v = path[i], path[i + 1]
+                edge_attrs = G_undirected.get_edge_data(u, v)
+                edge_attrs["direction"] = 1
+                if edge_attrs["geometry"].coords[0] != u:
+                    edge_attrs["geometry"] = edge_attrs["geometry"].reverse()
+                G.add_edge(u, v, **edge_attrs)
+        except nx.NetworkXNoPath:
+            logger.warning(
+                f"No path found from producer to consumer at {consumer}"
+            )
+            continue
+
+    if not nx.is_directed_acyclic_graph(G):
+        plot_networkx_graph(G)
+        breakpoint()
+
+    return G
+
+def apply_deterministic_simultaneity_to_directed_graph(
+        G, gdf_pipes, gdf_consumers, invest_opt,
+        static_simultaneity=1, show_plot=False,
+        a_simul=None):
+    """Calculate deterministic simultaneity factor based on network structure.
+
+    For each pipe segment, determine how many consumers are downstream and
+    apply a simultaneity factor based on that number.
+    """
+    # save_geopackage(gdf_pipes, 'debug_gdf_pipes')
+    nx.is_directed_acyclic_graph(G)
+    nx.is_forest(G.to_undirected())
+
+    # cylce_edges = nx.cycle_basis(G.to_undirected())
+    # for edges in cylce_edges:
+    #     plot_networkx_graph(G.subgraph(edges))
+
+    # Test for cycles in graph, which would prevent the following from working
+    if not nx.is_forest(G):
+        logger.warning("Graph contains loops/cycles, check results. ")
+        if show_plot:
+            plot_networkx_graph(G)
+
+    G = add_consumer_node_info(
+        G, gdf_consumers, gdf_pipes, static_simultaneity, a_simul=a_simul)
+
+    G = apply_deterministic_simultaneity_to_networkx(
+        G, gdf_consumers, gdf_pipes, static_simultaneity, invest_opt,
+        a_simul=a_simul)
+
+    # Convert networkx object back into a GeoDataFrame
+    gdf_pipes_res = custom_nx_to_gdf(G)
+    if gdf_pipes_res.crs is None:
+        gdf_pipes_res.crs = gdf_pipes.crs
+
+    # Test if index order is intact
+    # if not gdf_pipes_res[['from_node', 'to_node']].equals(
+    #         gdf_pipes[['from_node', 'to_node']]):
+    #     breakpoint()
+
+    # save_geopackage(gdf_pipes_res, 'debug_gdf_pipes2')
+    return gdf_pipes_res
+
+
+def apply_deterministic_simultaneity_to_networkx(
+        G, gdf_consumers, gdf_pipes, static_simultaneity, invest_opt,
+        a_simul=None, plot_debug=False):
+    # process from consumers back to source
+    for node in reversed(list(nx.topological_sort(G))):
+        # Capacity at each node is the sum of all its downstream consumers
+        # corrected by the simultaneity factor at that node
+        # plus the cumulative sum of all the downstream losses.
+        # The capacity of a node defines the required flow of the next
+        # upstream edge.
+        # The capacity of the upstream edge equals flow plus losses.
+        # The losses of the edge need to be calculated from the capacity.
+
+        if plot_debug:
+            neighbors = (
+                set([node])
+                | set(G.predecessors(node))
+                | set(G.successors(node))
+            )
+            H = G.subgraph(neighbors)
+
+            plot_networkx_processing_step(
+                G,
+                # H,
+                current_node=node,
+                incoming_edges=list(G.in_edges(node)),
+                outgoing_edges=list(G.out_edges(node)),
+                # edge_label='flow',
+            )
+
+        if G.out_degree(node) == 0:  # This is a consumer node
+            G.nodes[node]["capacity_loss_cumsum [kW]"] = 0
+
+            # Add data of consumer nodes to their edges
+            for pred in G.predecessors(node):
+                G.edges[pred, node]["capacity_consumers"] = (
+                    G.nodes[node]["capacity_consumers"])
+                G.edges[pred, node]["capacity_loss_cumsum [kW]"] = (
+                    G.nodes[node].get("capacity_loss_cumsum [kW]", 0))
+
+        if G.out_degree(node) > 0:
+            # Recalculate node data from connected edges
+            G.nodes[node]["capacity_consumers"] = sum(
+                G.edges[node, succ].get("capacity_consumers", 0)
+                for succ in G.successors(node)
+                )
+            # Calculate cumulative sum of losses of all downstream edges.
+            # It is the losses of the heighbooring outgoing edges plus the
+            # cumulative sum of the successor nodes.
+            # Needs to be updated at every step.
+            G.nodes[node]["capacity_loss_cumsum [kW]"] = sum(
+                G.edges[node, succ].get("losses", 0)
+                + G.edges[node, succ].get("capacity_loss_cumsum [kW]", 0)
+                # + G.nodes[succ].get("capacity_loss_cumsum [kW]", 0)
+                for succ in G.successors(node)
+            )
+
+        # Add node data to its incoming edge(s)
+        for pred in G.predecessors(node):
+            G.edges[pred, node]["capacity_consumers"] = (
+                G.nodes[node]["capacity_consumers"])
+            G.edges[pred, node]["capacity_loss_cumsum [kW]"] = (
+                G.nodes[node]["capacity_loss_cumsum [kW]"])
+
+        # This is the (only) part that actually makes a diffference to the dhnx
+        # results we are working on. At each node, we take the downstream
+        # simultaneity into account when calculating the required capacity
+        G.nodes[node]["capacity"] = (
+            G.nodes[node]["capacity_consumers"]
+            * G.nodes[node]["simultaneity"]
+            + G.nodes[node]["capacity_loss_cumsum [kW]"]
+            )
+
+        # While it is useful to take simultaneity into account for
+        # dimensioning throughout the whole network, there are problematic
+        # edge cases, e.g. when a branch with many small consumers meets
+        # a single large consumer. Correct cases where node capacity is
+        # smaller than capacity of any single outgoing edge.
+        G.nodes[node]["capacity"] = max(
+            [G.nodes[node]["capacity"],
+             *[(G.edges[node, succ].get("flow", 0)
+                + G.edges[node, succ].get("losses", 0))
+               for succ in G.successors(node)]
+             ]
+        )
+
+        # Total demand downstream of this node
+        downstream_capacity = G.nodes[node]["capacity"]
+        capacity_consumers = G.nodes[node]["capacity_consumers"]
+
+        def set_flow_and_losses_for_single_predecessor(fraction_mode="even"):
+            # Ideally, the dhnx solution has no loops, which means
+            # each node has only one incoming edge (in_degree == 1) and
+            # one predecessor node.
+
+            if fraction_mode=="even":
+                fractions = [1/G.in_degree(node)] * G.in_degree(node)
+            elif fraction_mode=="dhnx_flow":
+                # Use "flow" results from dhnx to weight the fraction per
+                # predecessor
+                fractions = [G.edges[pred, node]["flow"] for pred in G.predecessors(node)]
+                fractions = pd.Series(fractions) / sum(fractions)
+            else:
+                raise ValueError(f"fraction_mode undefined: {fraction_mode}")
+
+            for pred, flow_fraction in zip(G.predecessors(node), fractions):
+                edge = G.edges[pred, node]
+                edge["flow"] = downstream_capacity * flow_fraction
+                if edge.get("existing", False) in [1]:
+                    # If a pipe is an exiting pipe, the capacity is fixed
+                    # and not recomputed. The losses from dhnx can be kept
+                    pass
+                else:
+                    calc_edge_capacity_with_losses(edge, invest_opt)
+
+                # After defining flow, calculate the flow difference
+                # due to simultaneity.
+                # Later in pandapipes, flow_diff_simultaneity is summed
+                # up for all incoming pipes/edges per fork/node.
+                # So here we divide it by number of incoming edges.
+                if G.out_degree(node) > 0:  # This is not a consumer node
+                    edge["flow_diff_simultaneity"] = (
+                        edge["flow"] - sum(
+                            (G.edges[node, succ].get("flow", 0)
+                             + G.edges[node, succ].get("losses", 0))
+                            for succ in G.successors(node)
+                            )
+                        ) / G.in_degree(node)
+            return G
+
+        in_degree = G.in_degree(node)
+        if in_degree == 1:
+            set_flow_and_losses_for_single_predecessor()
+
+        elif in_degree > 1:
+            # Two incoming edges can happen if there are two producers in the
+            # network and the edges lead to those two producers.
+            #
+            # If there is only one producer upstream of the split, this means
+            # there must be two parallel branches (equals a cycle in terms
+            # of a non-directed network). Cycles were found in two cases:
+            # 1) Non-optimal solutions:
+            #    When the solver is forced to finish due to a time limit
+            #    and returns a non-optimal solution, these can sometimes
+            #    have cycles in them. But the re_run_optimization() step
+            #    usually helps get rid of those.
+            #    In the rare event that cycles remain, they are treated
+            #    as equally valid flow paths that may carry all the downstream
+            #    capacity.
+            # 2) Network with existing pipes:
+            #    When the user provides existing pipes with a set capacity,
+            #    the following scenario was observed in rare cases:
+            #    The capacity of the downstream edges was split
+            #    into one existing upstream edge and one new upstream edge.
+            #    The solver's 'reasoning' seems to be to max out the capacity
+            #    of the exising pipe, while diverting only the rest to
+            #    a parallel flow path of new pipes. New and existing paths
+            #    would meet again at some point, forming a cycle.
+
+            # If the current node has two predecessor, test if one
+            # is 'existing'.
+            # - identify the complete path that is 'existing' until
+            # it meets back with a 'new' pipe
+            # - Treat that part as an isolated network and run the
+            # function on that alone (recursively)
+            # - take the result and identify the 'free capacity' in that
+            # path, i.e. the minimum difference of
+            # capacity - (flow + losses) in the path.
+            # - Allow that amount to flow upstream from the current node
+            # into the existing upstream. Assign the rest to the other
+            # upstream branch
+
+            node_merge = node
+            predecessors = list(G.predecessors(node_merge))
+            node_split = nx.lowest_common_ancestor(
+                G, predecessors[0], predecessors[1])
+
+            if node_split is None:
+                # If no split node is found, there are no parallel branches.
+                # This is expected if there are two or more producers that
+                # supply different parts of the network which meet at one
+                # node.
+                set_flow_and_losses_for_single_predecessor(
+                    fraction_mode="dhnx_flow")
+                logger.warning("Split network detected. Please check results")
+                continue  # continue with next node
+
+            # Get the direct path between the split and merge nodes,
+            # where pipes are already existing
+            paths = list(nx.all_simple_paths(G, node_split, node_merge))
+            edge_paths = list(
+                nx.all_simple_edge_paths(G, node_split, node_merge))
+
+            path_direct = None
+            for edge_path, node_path in zip(edge_paths, paths):
+                for edge in edge_path:
+                    if G.get_edge_data(*edge)['existing']:
+                        path_direct = node_path
+
+            if path_direct is None:  # No 'existing' path found
+                # Most likely condition "1) Non-optimal solution"
+                logger.warning("A network with parallel branches was "
+                               "detected. This is usually a sign of a non-"
+                               "optimal solution. The 'deterministic "
+                               "simultaneity'-method supports this by "
+                               "treating all branches as equally valid flow "
+                               "paths that may carry all the downstream "
+                               "capacity. Check the results carefully.")
+                set_flow_and_losses_for_single_predecessor()
+
+            else:
+                # Intended condition "2) Network with existing pipes"
+
+                # Strategy:
+                # Run the simultaneity function on the branch between
+                # the split and merge nodes that contains existing pipes.
+                # Set consumer capacity at node_merge to zero.
+                # Observe what minimal free capacity remains among existing
+                # pipe segments.
+                # Allow the free capacity to flow to node_merge
+                successor_existing = path_direct[1]
+                predecessor_existing = path_direct[-2]
+                forward = (nx.descendants(G, successor_existing)
+                           | {successor_existing})
+                backward = nx.descendants(G, node_merge) | {node_merge}
+                # nodes = forward - backward
+                # TODO Update 26.07.14; See here if stuff breaks
+                nodes = forward - backward | {node_split, node_merge}
+                G_exist = G.subgraph(nodes)  # Not a copy, G is updated
+                # plot_networkx_graph(G_exist)
+
+                G_exist = add_consumer_node_info(
+                    G_exist, gdf_consumers, gdf_pipes, static_simultaneity,
+                    a_simul=a_simul)
+                G_exist = apply_deterministic_simultaneity_to_networkx(
+                    G_exist, gdf_consumers, gdf_pipes, static_simultaneity,
+                    invest_opt, a_simul=a_simul)
+
+                try:
+                    edges_gdf_exist = custom_nx_to_gdf(G_exist)
+                except ValueError as e:
+                    logger.error(e)
+                    breakpoint()
+                # save_geopackage(edges_gdf_exist, 'debug_gdf_pipes_exist')
+
+                capacity_free_min = np.inf
+                for i, node_1 in enumerate(path_direct):
+                    if i <= 1:
+                        continue
+                    if i < len(path_direct):
+                        edge = G_exist.edges[path_direct[i-1], path_direct[i]]
+                        if edge.get("existing", 0) in [1]:
+                            capacity_free = (
+                                edge.get("capacity", 0)
+                                - (edge.get("flow", 0) + edge.get("losses", 0))
+                                )
+
+                            capacity_free = (
+                                capacity_free
+                                / G_exist.nodes[node_1]["simultaneity"])
+
+                            if capacity_free > 0:
+                                capacity_free_min = min(capacity_free_min,
+                                                        capacity_free)
+
+                # The upstream existing branch needs to carry as much flow
+                # as possible
+                flow_from_existing_branch = min(
+                    capacity_free_min,
+                    downstream_capacity)
+                flow_from_other_branch = (
+                    # downstream_capacity - flow_from_existing_branch)
+                    (capacity_consumers - flow_from_existing_branch)
+                    * G.nodes[node]["simultaneity"]
+                    + G.nodes[node]["capacity_loss_cumsum [kW]"]
+                    )
+
+                capacity_consumers_from_existing_branch = (
+                    flow_from_existing_branch
+                    )
+
+                # Assign capacity, flow and losses to all incoming edges
+                for pred, _ in G.in_edges(node):
+                    edge = G.edges[pred, node]
+                    if pred == predecessor_existing:
+                        edge["flow"] = flow_from_existing_branch
+                        edge["capacity_consumers"] = flow_from_existing_branch
+                        edge["capacity_loss_cumsum [kW]"] = 0
+                        # G.nodes[pred]["capacity_consumers"] = (
+                        #     capacity_consumers_from_existing_branch)
+                    else:
+                        edge["flow"] = flow_from_other_branch
+                        edge["capacity_consumers"] = (
+                            capacity_consumers
+                            - capacity_consumers_from_existing_branch)
+                        # G.nodes[pred]["capacity_consumers"] = (
+                        #     G.nodes[pred]["capacity_consumers"]
+                        #     - capacity_consumers_from_existing_branch)
+
+                        # After defining flow, calculate the flow difference
+                        # due to simultaneity
+                        if G.out_degree(node) > 0:  # This is no consumer node
+                            edge["flow_diff_simultaneity"] = (
+                                edge["flow"]
+                                - sum((G.edges[node, succ].get("flow", 0)
+                                       + G.edges[node, succ].get("losses", 0))
+                                      for succ in G.successors(node)
+                                      )
+                                + flow_from_existing_branch
+                                )
+
+                    if edge.get("existing", False) in [1]:
+                        # If a pipe is an exiting pipe, the capacity is fixed
+                        # and not recomputed. The losses from dhnx can be kept
+
+                        pass
+                    else:
+                        calc_edge_capacity_with_losses(edge, invest_opt)
+
+    return G
+
+
+def calc_edge_capacity_with_losses(edge, invest_opt):
+    """Calculate an edges capacity from flow and losses.
+
+    The capacity of an edge equals flow plus losses, while losses depend on
+    total capacity. For losses, the investment options for dhnx are used.
+    """
+    df_hp = invest_opt['network']['pipes']
+    hp_label = edge["hp_type"]
+    hp_p = df_hp[df_hp["label_3"] == hp_label].squeeze()
+
+    a = edge["length"] * hp_p["l_factor"]
+    b = edge["length"] * hp_p["l_factor_fix"]
+
+    edge["capacity"] = (edge["flow"] + b) / (1 - a)
+    edge["losses"] = (edge["capacity"] - edge["flow"])
+
+
+def add_consumer_node_info(G, gdf_consumers, gdf_pipes, static_simultaneity=1,
+                           a_simul=None):
+    """Add consumer info to consumer nodes.
+
+    For each node, count downstream consumers. Calculate deterministic
+    simultaneity factor from literature function based on that number.
+    Note the cumulative capacity of consumers connected downstream of
+    each node.
+
+    Use actual 'flow' value from pipes at each consumer endpoint
+    as consumer power. This is compatible with both static values and
+    dhnx time series.
+    """
+    consumer_nodes = (gdf_consumers
                       .intersection(gdf_pipes.union_all())
                       .geometry.apply(lambda c: (c.x, c.y))
                       )
 
-    cols_compare = ["simultaneity", "n_consumers", "capacity_consumers",
-                    "capacity_loss_cumsum [kW]", "capacity"]
-    gdf_pipes_list = []
-    for i, producer in enumerate(producer_nodes):
-        gdf_pipes_i = run_single_producer(
-            producer, gdf_consumers, gdf_pipes.copy(), G_undirected)
+    # For each node, count actual downstream consumers
+    for node in G.nodes():
+        # Get all nodes reachable from this node (downstream)
+        try:
+            descendants = nx.descendants(G, node)
+            if len(descendants) == 0:  # Node has no more descendants
+                descendants = [node]  # Node must be a consumer
+            # Count how many descendants are consumers
+            descendant_consumers = set(descendants) & set(consumer_nodes)
+            n_consumers = len(descendant_consumers)
 
-        if i > 0:
-            gdf_pipes_i = gdf_pipes_i[cols_compare]
-        for column in cols_compare:
-            gdf_pipes_i = gdf_pipes_i.rename(
-                columns={column: f"{column}_{i}"})
+            # capacity_consumers is sum of flow values in last downstream pipes
+            gdf_descendant_consumer_lines = gdf_pipes[gdf_pipes.intersects(
+                shapely.MultiPoint(list(descendant_consumers)))]
 
-        gdf_pipes_list.append(gdf_pipes_i)
 
-    gdf_pipes_return = pd.concat(gdf_pipes_list, axis='columns')
+            # Calculate simultaneity factor based on number of consumers
+            simultaneity = simultaneity_factor(n_consumers, a=a_simul)
 
-    # Each gdf_pipes in the list represents the condition of the network
-    # from the point of view of one producer. In order to allow supply
-    # to all consumers from all producers, the largest 'capacity_consumers'
-    # has to be detected for each pipe segment. We also store 'n_consumers'
-    # and 'simultaneity' of that case.
-    # The cumulative sum of heat losses of all pipes downstream of a given
-    # pipe ("capacity_loss_cumsum [kW]") also has to be selected from
-    # point of view of the dominating producer, in order
-    # to apply the simultaneity factor only to the 'capacity_consumers', and
-    # update the total 'capacity' as the sum of them.
-    gdf_pipes_return = gdf_pipes_return.fillna({"capacity_consumers_0": 0})
-    max_idx = np.nanargmax(gdf_pipes_return
-                           .filter(like="capacity_consumers")
-                           .to_numpy(), axis=1)
+            G.nodes[node]["n_consumers"] = n_consumers
+            G.nodes[node]["simultaneity"] = simultaneity
+            G.nodes[node]["capacity_consumers"] = (
+                gdf_descendant_consumer_lines["flow"].sum()
+                / static_simultaneity  # Correct for dhnx simultaneity setting
+            )
 
-    for col in cols_compare:
-        gdf_pipes_return[col] = (gdf_pipes_return.filter(like=col).to_numpy()
-                                 [np.arange(len(gdf_pipes_return)), max_idx])
+            # TODO: For now, do a savety test. Remove at some point
+            if 'P_heat_max' in gdf_consumers.columns:
+                gdf_descendant_consumers = gdf_consumers[gdf_consumers.intersects(
+                    shapely.MultiPoint(list(descendant_consumers)))]
 
-    gdf_pipes_return["capacity"] = (
-        gdf_pipes_return["capacity_consumers"]
-        * gdf_pipes_return["simultaneity"]
-        + gdf_pipes_return["capacity_loss_cumsum [kW]"]
-        )
+                if abs(gdf_descendant_consumers['P_heat_max'].sum()
+                       - G.nodes[node]["capacity_consumers"]) > 1e-2:
+                    logger.error("Incorrect consumer capacity needs investigation")
+                    breakpoint()
+                    test = pd.merge(
+                        gdf_descendant_consumer_lines,
+                        gdf_descendant_consumers[['P_heat_max', 'id_full']],
+                        on='id_full'
+                        )
+                    print(test["flow"] /
+                          (static_simultaneity * test['P_heat_max']))
 
-    # If existing=1 was used to mark any pipe segments as
-    # previously existing (and thus not up for optimization in DHNx),
-    # some previous calculations need to be corrected.
-    # 1) 'capacity' is just the input capacity of the existing pipe
-    # 2) The above calculation of the cumulative sum of losses is invalid
-    #    because it assumes the total capacity was calculated by DHNx
-    if 'existing' in gdf_pipes_return.columns:
-        mask_existing = gdf_pipes_return['existing'].isin([True, 1, "1"])
-        if mask_existing.any():
-            gdf_pipes_return.loc[
-                mask_existing, 'capacity'] = gdf_pipes_return["capacity_orig"]
-            gdf_pipes_return.loc[
-                mask_existing, 'capacity_loss_cumsum [kW]'] = np.nan
+        except nx.NetworkXError:
+            continue
 
-    return gdf_pipes_return
+    return G
+
+
+def gdf_to_nx_directed(gdf_pipes, col_dir="direction", multigraph=False):
+    if 0 in gdf_pipes[col_dir]:
+        logger.warning("There are pipes without defined direction")
+
+    mask = gdf_pipes[col_dir] == -1
+
+    # Fix the direction in the properties of the DataFrame
+    gdf_pipes.loc[mask, gdf_pipes.geometry.name] = gdf_pipes.loc[mask].reverse()
+    gdf_pipes.loc[mask, col_dir] = 1
+    from_node = gdf_pipes.loc[mask, "from_node"]
+    gdf_pipes.loc[mask, "from_node"] = gdf_pipes.loc[mask, "to_node"]
+    gdf_pipes.loc[mask, "to_node"] = from_node
+
+    G = momepy.gdf_to_nx(gdf_pipes, approach="primal", directed=True,
+                         preserve_index=True, multigraph=multigraph)
+    return G, gdf_pipes
+
+
+def custom_nx_to_gdf(G):
+    if len(G.edges) == 0:
+        return gpd.GeoDataFrame()
+
+    nodes_gdf, edges_gdf = momepy.nx_to_gdf(G)
+    gdf_pipes_res = pd.merge(
+        edges_gdf,
+        nodes_gdf.drop(columns=['capacity', 'capacity_consumers', 'geometry',
+                                'capacity_loss_cumsum [kW]'],
+                       errors='ignore'),
+        left_on='node_end', right_on='nodeID', how='left'
+        ).set_index(edges_gdf.index)
+
+    gdf_pipes_res = gdf_pipes_res.drop(
+        columns=['node_start', 'node_end', 'nodeID', 'mm_len', 'x', 'y'],
+        errors='ignore')
+
+    return gdf_pipes_res
 
 
 def get_installed_solver(auto_install_cbc=True):
