@@ -34,7 +34,7 @@ channels:
     - conda-forge
     - defaults
 dependencies:
-    - python
+    - python <3.14  # 3.14 causes issues in Spyder
     - pip
     - pandas <3.0  # issues in pandapipes 0.13
     - pyyaml
@@ -76,8 +76,14 @@ dependencies:
 
     # Specify automatic pip installations
     - pip:
-        - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        # - https://github.com/oemof/DHNx/archive/dev.tar.gz  # dhnx (branch 'dev')
+        - https://github.com/oemof/DHNx/archive/features/pandapipes_pressure_loss.tar.gz  # dhnx (branch 'dev')
         - oemof.solph >=0.6
         - demandlib >=0.2.2
-        - pandapipes >=0.13
+        # pandapipes >=0.14
+        - https://github.com/jnettels/pandapipes/archive/fix/capstyle_setting.tar.gz  # https://github.com/e2nIEE/pandapipes/pull/776
         # - pandapower <3.2  # https://github.com/e2nIEE/pandapipes/issues/770
+
+        # Packages for "custom_basemaps.py"
+        - mercantile
+        - vt2geojson
