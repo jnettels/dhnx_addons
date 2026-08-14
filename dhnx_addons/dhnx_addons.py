@@ -5219,9 +5219,10 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
 
     # Add pipe capacity results to producers, to store required thermal
     # capacity per producer
+    cols = ['id_full', 'capacity', 'simultaneity']
+    cols = [c for c in cols if c in gdf_pipes.columns]
     network.components['producers'] = network.components['producers'].join(
-        gdf_pipes[['id_full', 'capacity']].groupby('id_full').sum(),
-        on='id_full')
+        gdf_pipes[cols].groupby('id_full').sum(), on='id_full')
 
     if save_path is not None:
         save_gis_generic(network.components['producers'],
