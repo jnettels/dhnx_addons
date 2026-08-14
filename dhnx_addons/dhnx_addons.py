@@ -5188,8 +5188,26 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
                          ext=save_gis_ext)
         save_excel(gdf_pipes, os.path.join(save_path, 'pipes_result.xlsx'))
 
-    df_pipes_agg = calc_pipes_agg(gdf_pipes)
-    df_pipes_stat = calc_pipes_stats(df_pipes_agg)
+    if "existing" not in gdf_pipes.columns:
+        gdf_pipes["existing"] = 0
+
+    cols_mean = ['Inner diameter [m]', 'Roughness [mm]',
+                 'U-value [W/mK]', 'Costs [€/m]', 'T_forward [°C]',
+                 'T_return [°C]', 'T_ground [°C]', 'T_mean [°C]',
+                 'Max delta p [Pa/m]', 'v_max [m/s]', 'mdot_max [kg/s]',
+                 'P_max [kW]', 'P_loss [kW/m]']
+    cols_sum = ['length', 'capacity', 'Cost_lin [€]',
+                'P_loss_lin [kW]', 'Cost [€]', 'P_loss [kW]',
+                'E_loss [MWh]']
+    agg_dict = dict()
+    for col in gdf_pipes.columns:
+        if col in cols_mean:
+            agg_dict[col] = 'mean'
+        elif col in cols_sum:
+            agg_dict[col] = 'sum'
+
+    df_pipes_agg = calc_pipes_agg(gdf_pipes, agg_dict)
+    df_pipes_stat = calc_pipes_stats(df_pipes_agg, agg_dict)
 
     # Add pipe capacity results to producers, to store required thermal
     # capacity per producer
@@ -5208,7 +5226,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
     return network, gdf_pipes, df_pipes_agg, df_DN
 
 
-def calc_pipes_agg(gdf_pipes):
+def calc_pipes_agg(gdf_pipes, agg_dict):
     """Calculate aggregated information about pipes."""
     df_pipes = gdf_pipes.copy()
     df_pipes = df_pipes[df_pipes['DN'] > 0]
@@ -5217,45 +5235,52 @@ def calc_pipes_agg(gdf_pipes):
                                'HL': 'Hausanschlussleitung'}},
                      inplace=True)
 
-    cols_mean = ['Inner diameter [m]', 'Roughness [mm]',
-                 'U-value [W/mK]', 'Costs [€/m]', 'T_forward [°C]',
-                 'T_return [°C]', 'T_ground [°C]', 'T_mean [°C]',
-                 'Max delta p [Pa/m]', 'v_max [m/s]', 'Mass flow [kg/s]',
-                 'P_max [kW]', 'P_loss [kW/m]']
-    cols_sum = ['length', 'capacity', 'Cost_lin [€]',
-                'P_loss_lin [kW]', 'Cost [€]', 'P_loss [kW]',
-                'E_loss [MWh]']
-    agg_dict = dict()
-    for col in df_pipes.columns:
-        if col in cols_mean:
-            agg_dict[col] = 'mean'
-        elif col in cols_sum:
-            agg_dict[col] = 'sum'
+    if "existing" in gdf_pipes:
+        groupby_cols = ['existing', 'type', 'DN']
+    else:
+        groupby_cols = ['type', 'DN']
 
     df_pipes_agg = (df_pipes.set_index('type')
-                    .groupby(['type', 'DN'])
+                    .groupby(groupby_cols)
                     .agg(agg_dict))
 
     return df_pipes_agg
 
 
-def calc_pipes_stats(df_pipes_agg):
+def calc_pipes_stats(df_pipes_agg, agg_dict):
     """Calculate selected statistical information about pipes."""
-    df_pipes_stat = pd.Series(dtype='float')
-    df_pipes_stat['Sum length consumer [m]'] = \
-        df_pipes_agg.loc['Hausanschlussleitung', 'length'].sum()
-    df_pipes_stat['Sum length producer [m]'] = \
-        df_pipes_agg.loc['Erzeugerleitung', 'length'].sum()
-    try:
-        df_pipes_stat['Sum length distribution [m]'] = \
-            df_pipes_agg.loc['Verteilleitung', 'length'].sum()
-    except KeyError:
-        df_pipes_stat['Sum length distribution [m]'] = 0
+    # TODO Requires pandas>=3.0 (restricted to 2.3 by pandapower)
+    # df_pipes_agg.groupby(["existing", "type"])[['length']].sum(skipna=False)
+    df_length_sum = (df_pipes_agg
+                     .groupby(["existing", "type"])[['length']].sum()
+                     .unstack().stack(future_stack=True)).fillna(0)
+
+    df_length_sum = df_length_sum.reset_index().replace({
+        "existing": {0: "(new)",
+                     1: "(existing)",
+                     },
+        "type": {"Hausanschlussleitung": "Sum length consumer",
+                 "Erzeugerleitung": "Sum length producer",
+                 "Verteilleitung": "Sum length distribution",
+                 },
+        })
+
+    df_length_sum_1 = df_length_sum.groupby("type").sum()['length']
+    df_length_sum_1.index = df_length_sum_1.index + " [m]"
+    df_pipes_stat = df_length_sum_1
+
+    df_length_sum.index = (df_length_sum["type"] + " "
+                           + df_length_sum["existing"] + " [m]")
+
+    df_pipes_stat = pd.concat([df_pipes_stat, df_length_sum['length']])
+    df_pipes_stat = df_pipes_stat.sort_index()
 
     df_pipes_stat['Sum length [m]'] = df_pipes_agg['length'].sum()
 
     df_pipes_stat['Sum P_loss [kW]'] = df_pipes_agg['P_loss [kW]'].sum()
     df_pipes_stat['Sum E_loss [MWh]'] = df_pipes_agg['E_loss [MWh]'].sum()
+
+    df_pipes_agg = df_pipes_agg.groupby(["type", "DN"]).agg(agg_dict)
 
     df_pipes_stat['Sum thermal power consumers [kW]'] = (
         df_pipes_agg.loc['Hausanschlussleitung', 'capacity'].sum()
@@ -5281,6 +5306,8 @@ def calc_pipes_stats(df_pipes_agg):
     df_pipes_stat['T_forward [°C]'] = df_pipes_agg['T_forward [°C]'].mean()
     df_pipes_stat['T_return [°C]'] = df_pipes_agg['T_return [°C]'].mean()
     df_pipes_stat['T_ground [°C]'] = df_pipes_agg['T_ground [°C]'].mean()
+
+    df_pipes_stat.name = 0
 
     return df_pipes_stat
 
