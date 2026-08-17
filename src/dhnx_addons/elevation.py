@@ -2,11 +2,17 @@
 """Download elevation data for a given geometry."""
 import logging
 import geopandas as gpd
-import dhnx_addons
 import numpy as np
 import shapely
 import requests
 import time
+
+from .dhnx_addons import (
+    plot_geometries,
+    load_example_area,
+    download_streets_from_osm,
+    download_buildings_from_osm,
+)
 
 # Define the logging function
 logger = logging.getLogger(__name__)
@@ -23,9 +29,9 @@ def main():
     # logging.getLogger().setLevel(logging.DEBUG)
 
     # Load test data
-    gdf_poly = dhnx_addons.load_example_area()
-    gdf_lines = dhnx_addons.download_streets_from_osm(gdf_poly)
-    gdf_points = dhnx_addons.download_buildings_from_osm(gdf_poly)
+    gdf_poly = load_example_area()
+    gdf_lines = download_streets_from_osm(gdf_poly)
+    gdf_points = download_buildings_from_osm(gdf_poly)
     gdf_points.geometry = gdf_points.representative_point()
 
     # Test with points
@@ -231,7 +237,7 @@ def download_elevation_data(
         )
 
         if show_plot:
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [result_gdf, gdf],
                 plt_kwargs=[
                     dict(

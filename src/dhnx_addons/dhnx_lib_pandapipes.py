@@ -10,7 +10,9 @@ import networkx as nx
 import os
 import pandas as pd
 
-import dhnx_addons
+from .elevation import download_elevation_data
+from .dhnx_addons import (plot_geometries,
+                          custom_plot_save, save_gis_generic)
 
 logger = logging.getLogger(__name__)  # Create a logger for this module
 
@@ -265,7 +267,7 @@ def pp_setup_net(
         for _df in [forks, consumers, producers]:
             if elevation_col not in _df:
                 if download_missing_elevation:
-                    df_elev = dhnx_addons.download_elevation_data(
+                    df_elev = download_elevation_data(
                         _df, col_elevation=elevation_col,
                         show_plot=False)
                     _df[elevation_col] = df_elev[elevation_col]
@@ -838,7 +840,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [pipes,
                  pd.concat([forks, consumers, producers]),
                  ],
@@ -866,7 +868,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [consumers,
                  producers,
                  _pipes,
@@ -896,7 +898,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [consumers, producers, _pipes],
                 plt_kwargs=[dict(label='Consumer', color='green'),
                             dict(label='Producer',
@@ -921,7 +923,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [consumers,
                  producers,
                  _pipes,
@@ -951,7 +953,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [consumers,
                  producers,
                  _pipes],
@@ -977,7 +979,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             else:
                 save_path_plots=None
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                 [consumers,
                  producers,
                  _pipes],
@@ -1006,7 +1008,7 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
 
             gdf_shortest = find_shortest_path(_pipes, producers, forks_p_min)
 
-            dhnx_addons.plot_geometries(
+            plot_geometries(
                     [_pipes, producers, forks_p_min, gdf_shortest],
                     plt_kwargs=[
                         dict(label='Pipelines', linewidth=0.5, color='red'),
@@ -1022,14 +1024,16 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
                     save_path=save_path_plots,
                     )
 
-        if direction == 'circular':
-            gdf_shortest_f = find_shortest_path(
-                pipes.xs('forward', level='flow_direction'),
-                producers, forks_p_min)
-            gdf_shortest_r = find_shortest_path(
-                pipes.xs('return', level='flow_direction'),
-                producers, forks_p_min)
+    if direction == 'circular':
+        gdf_shortest_f = find_shortest_path(
+            pipes.xs('forward', level='flow_direction'),
+            producers, forks_p_min)
+        gdf_shortest_r = find_shortest_path(
+            pipes.xs('return', level='flow_direction'),
+            producers, forks_p_min)
+        gdf_shortest = gdf_shortest_f
 
+        if show_plot or save_plot:
             fig, ax = plt.subplots()
             ax.plot(gdf_shortest_f['distance'], gdf_shortest_f['p_mean_bar'], label='Forward')
             ax.plot(gdf_shortest_r['distance'], gdf_shortest_r['p_mean_bar'], label='Return')
@@ -1038,32 +1042,38 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
             plt.legend()
 
             if save_plot:
-                dhnx_addons.custom_plot_save(
+                custom_plot_save(
                     os.path.join(save_path, 'plots', 'Pressure vs Distance'))
             if show_plot:
                 plt.show()
             else:
                 plt.close()
 
+    else:
+        gdf_shortest = find_shortest_path(
+            pipes.xs(direction, level='flow_direction'),
+            producers,
+            forks_p_min)
+
     if save_path is not None:
         # export the GeoDataFrames with the simulation results to .geojson
-        dhnx_addons.save_gis_generic(
+        save_gis_generic(
             pipes, 'pandapipes_pipes', path=save_path, ext=save_gis_ext)
-        dhnx_addons.save_gis_generic(
+        save_gis_generic(
             forks, 'pandapipes_forks', path=save_path, ext=save_gis_ext)
-        dhnx_addons.save_gis_generic(
+        save_gis_generic(
             consumers, 'pandapipes_consumers', path=save_path,
             ext=save_gis_ext)
-        dhnx_addons.save_gis_generic(
+        save_gis_generic(
             producers, 'pandapipes_producers', path=save_path, ext=save_gis_ext)
-        dhnx_addons.save_gis_generic(
+        save_gis_generic(
             gdf_shortest, 'pandapipes_shortest', path=save_path,
             ext=save_gis_ext)
         if direction == 'circular':
-            dhnx_addons.save_gis_generic(
+            save_gis_generic(
                 gdf_shortest_f, 'pandapipes_shortest_f',
                 path=save_path, ext=save_gis_ext)
-            dhnx_addons.save_gis_generic(
+            save_gis_generic(
                 gdf_shortest_r, 'pandapipes_shortest_r',
                 path=save_path, ext=save_gis_ext)
 
@@ -1111,7 +1121,7 @@ def find_shortest_path(gdf, point_start, point_end, distance_col='distance',
     gdf_s.crs = gdf.crs
 
     if show_plot:
-        dhnx_addons.plot_geometries(
+        plot_geometries(
             [gdf, point_start, point_end, gdf_s],
             plt_kwargs=[
                 dict(label='Network', color='red'),

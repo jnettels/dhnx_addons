@@ -10,28 +10,30 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13"]
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v1  # use the latest code commit
+      uses: actions/checkout@v4
 
-    - name: Setup conda with python ${{ matrix.python-version }}
-      uses: conda-incubator/setup-miniconda@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
       with:
-        auto-update-conda: true
-        activate-environment: work
-        environment-file: environment_dev.yaml
         python-version: ${{ matrix.python-version }}
+        cache: pip
+
+    - name: Install package and test dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -U build wheel
+        python -m pip install -e .[dev]
 
     - name: Lint with flake8
-      shell: pwsh  # Needed where conda env is used
-      if: runner.os == 'Linux'  # Only needs to run once
+      if: runner.os == 'Linux'
+      shell: bash
       run: |
-        pip install flake8
-        # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Install solver cbc (Windows)
@@ -43,46 +45,33 @@ jobs:
       run: sudo apt install coinor-cbc -y
 
     - name: Run OpenStreetMap example workflow
-      shell: pwsh  # Needed where conda env is used
+      if: runner.os == 'Linux' # Just hangs on windows for unknown reasons
+      shell: bash
       run: |
         cd ./examples
         python dhnx_example.py
 
   job_2:
     runs-on: ${{ matrix.os }}
-    name: Conda Build
+    name: Build package
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13"]
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v1  # use the latest code commit
+      uses: actions/checkout@v4
 
-    - name: Setup conda with python ${{ matrix.python-version }}
-      uses: conda-incubator/setup-miniconda@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
       with:
-        auto-update-conda: true
-        activate-environment: work
-        channels: conda-forge,defaults
         python-version: ${{ matrix.python-version }}
+        cache: pip
 
-    - name: Install dependencies with conda
-      shell: pwsh  # Needed where conda env is used
+    - name: Build distributions
+      shell: bash
       run: |
-        conda install conda-build setuptools setuptools_scm -c defaults
-
-    - name: Install solver cbc (Windows)
-      if: runner.os == 'Windows'
-      run: echo y | python src/dhnx_addons/cbc_installer.py
-
-    - name: Install solver cbc (Linux)
-      if: runner.os == 'Linux'
-      run: sudo apt install coinor-cbc -y
-
-    - name: Build with conda
-      shell: pwsh  # Needed where conda env is used
-      run: |
-        conda build conda.recipe -c jnettels -c conda-forge -c defaults
+        python -m pip install --upgrade pip build
+        python -m build

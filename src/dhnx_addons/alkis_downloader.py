@@ -15,8 +15,9 @@ import zlib
 import shutil
 import pandas as pd
 import dhnx_addons
-from dhnx_addons import dhnx_lib_3d
 import logging
+
+from . import dhnx_lib_3d
 
 # Define the logging function
 logger = logging.getLogger(__name__)

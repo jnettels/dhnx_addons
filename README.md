@@ -39,60 +39,47 @@ This package provides a default workflow that perfoms the following:
 ## Installation
 
 ### TLDR
-If you already have Anaconda installed, the easiest way to get everything
-set up is to create a dedicated python environment from a yaml. Save the file
-``environment_user.yaml`` to a folder where you run the following command.
-Change the environment name ``my-env-name`` to something useful like ``work``
-or ``dhnx``:
+This project needs to be installed with pip, because not all dependencies
+are found on conda.
 
-```conda env create --name=my-env-name --file=environment_user.yaml```
+Create an environment (named ``work`` in this example) with either ``venv``
+```bash
+python -m venv work
+source work/bin/activate  # on Linux
+work\Scripts\activate  # on Windows
+```
 
-(A simple ``conda install dhnx_addons`` will install all dependencies
-available on conda, but cannot install the required pip dependencies.)
+or ``conda``
 
-To update an existing environment, you can use:
+```bash
+conda create --name=work python=3.13
+conda activate work
+```
 
-```conda env update --name=my-env-name --file=environment_user.yaml```
+then install dhnx_addons with its dependencies via ``pip``:
 
-If you want to instead clone this repository to develop it further,
-create a development environment with all the dependencies:
-
-```conda env create --name=my-env-name --file=environment_dev.yaml```
+```bash
+pip install "dhnx_addons @ https://github.com/jnettels/dhnx_addons/archive/main.tar.gz"
+```
+(This installs the package from this GitHub repository. ``dhnx_addons`` is not
+yet published on pypi.)
 
 ### Detailed Information
-- Download and install Anaconda. On windows, if ``winget`` is installed,
-  the fastest way is
-  ``winget install anaconda3``
-- On windows, if the Terminal is used with PowerShell, do not forget to run
-  ``conda init powershell`` (which might require administrator rights)
-- Download and install ``git`` to clone this repository, e.g. with
-  ``winget install Git.Git``
-- It is recommended to install the dependencies into a dedicated python
-  environment. This repository contains an example environment file
-  that can be used like this:
-  ``conda env create --file environment_dev.yaml``
-- Activate the new environment with
-  ``conda activate work``
-- If you want to use your new environment in ``Spyder``, you will likely
-  need to install ``spyder-kernels``. But ``Spyder`` will inform about the
-  required version if necessary
-- Some dependencies (namely ``dhnx`` and ``oemof``) can only be obtained
-  via ``pip``, not ``conda``
-- Installation instructions for ``dhnx`` can sometimes change, since it
-  is often worked on. The published ``pip`` version is not up-to-date, but
-  ``environment_dev.yaml`` always contains the current installation target,
-  e.g. the ``dev`` branch or a special feature branch.
-  Perform a ``dry-run`` first to see if any packages other than
-  dhnx and oemof would be installed. Try to install those with conda, if
-  possible. (Mixing ``pip`` and ``conda`` installations in generally not
-  recommended, because ``conda`` does not keep track of the ``pip``
-  installations properly.) To install the ``dev`` branch of ``dhnx``, use
-  ``pip install https://github.com/oemof/DHNx/archive/dev.tar.gz --dry-run``
-- If everything seems fine, perform the actual installation with
-  ``pip install https://github.com/oemof/DHNx/archive/dev.tar.gz``
-- Development on ``dhnx`` is ongoing. Newer versions might require updates
-  to the current workflow. These can be tested by installing directly
-  from the repository at https://github.com/oemof/DHNx
+
+- Create a dedicated python virtual environment or conda environment
+  for the project
+- If you want to use conda, the recommended installation is ``miniconda``
+  from https://www.anaconda.com/download/success
+  - On windows, if the Terminal is used with PowerShell, do not forget to run
+    ``conda init powershell`` (which might require administrator rights)
+- For development work:
+  - Install ``git``, e.g. with ``winget install Git.Git`` if available
+  - Download (clone) this repository with ``git clone https://github.com/jnettels/dhnx_addons.git``
+  - Change directory into the new folder ``cd dhnx_addons``
+  - Installed the package in editable mode with
+    ``pip install -e .[dev]``
+- If you want to use your environment in ``Spyder``, you will likely need to
+  install ``spyder-kernels``. But ``Spyder`` will inform about the required version if necessary
 - ``dhnx`` requires a solver to perform its optimization, e.g. the free
   ``cbc`` or ``gurobi`` (which is faster)
 - The solver ``cbc`` (https://github.com/coin-or/Cbc/releases/latest)
@@ -102,4 +89,4 @@ create a development environment with all the dependencies:
 - If the user is eligible, an academic license for ``gurobi`` can be obtained
   at https://www.gurobi.com/downloads/end-user-license-agreement-academic/
 - To test the example OpenStreetMap workflow, run
-  ``python dhnx_addons.py``
+  ``python examples/dhnx_example.py``

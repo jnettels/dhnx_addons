@@ -18,6 +18,8 @@ dist/
 *.code-workspace
 *.gpkg
 
+*.egg-info
+
 */result_*
 src/dhnx_addons/debug/
 install_helpers/

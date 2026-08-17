@@ -28,7 +28,8 @@ import shapely
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import dhnx_addons
+
+from .dhnx_addons import plot_geometries
 
 # Define the logging function
 logger = logging.getLogger(__name__)
@@ -38,9 +39,6 @@ try:
 except ImportError as e:
     logger.error(e)
     logger.warning("Package pyvista required for 3d object functions")
-
-# Define the logging function
-logger = logging.getLogger(__name__)
 
 
 def calculate_3d_building_areas(
@@ -740,7 +738,7 @@ def find_optimal_grid_size_for_multipolygon(multipolygon, min_grid_size=0.0001,
                     candidate = shapely.geometry.box(x, y, x + grid_size, y + grid_size)
                     if poly.intersects(candidate):
                         if plot_debug:
-                            dhnx_addons.plot_geometries([poly, candidate], title=grid_size)
+                            plot_geometries([poly, candidate], title=grid_size)
                         if any(hole.within(candidate) for hole in poly.interiors):
                             violates_condition = True
                             break

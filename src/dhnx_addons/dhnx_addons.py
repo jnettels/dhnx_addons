@@ -180,7 +180,6 @@ import momepy
 import requests
 
 from . import cbc_installer  # local import
-from . import dhnx_lib_pandapipes  # local import
 from . import custom_basemaps  # local import
 
 
@@ -230,14 +229,6 @@ except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'osmnx' can be installed with "
                    "'conda install osmnx -c conda-forge'")
-
-try:
-    import demandlib
-except ImportError as e:
-    logger.exception(e)
-    logger.warning("Optional dependency 'demandlib' can be installed from "
-                   "'https://github.com/jnettels/demandlib'")
-
 
 try:
     import lpagg
@@ -488,6 +479,8 @@ def workflow_example_openstreetmap(
     # or the maximum thermal power multiplied with a simultaneity factor
     # as an input for the thermal power of each consumer
 
+
+    from . import dhnx_lib_pandapipes
 
     p_pipes, p_forks, p_consumers, p_producers = (
         dhnx_lib_pandapipes.pandapipes_run(
@@ -5047,7 +5040,7 @@ def dhnx_run(gdf_lines_streets, gdf_poly_gen, gdf_poly_houses,
         reset_index=reset_index,
         n_conn=n_conn,
         n_conn_prod=n_conn_prod,
-        welding=welding,
+        simplify=welding,
     )
 
     if show_plot:
@@ -7088,7 +7081,7 @@ def lpagg_run(gdf, sigma=0, E_th_col='E_th_total_kWh', show_plot=True,
 
     if cfg_kwargs.get('use_demandlib', False) == 'auto':
         try:  # if import is successfull, use demandlib
-            from demandlib import vdi
+            from oemof.demand import vdi
             cfg_kwargs['use_demandlib'] = True
         except ImportError:  # otherwise, do not use demandlib
             cfg_kwargs['use_demandlib'] = False

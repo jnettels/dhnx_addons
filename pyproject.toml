@@ -1,0 +1,80 @@
+[build-system]
+requires = ["flit_core >=3.8,<4", "flit_scm"]
+build-backend = "flit_scm:buildapi"
+
+[project]
+name = "dhnx_addons"
+dynamic = ["version"]
+description = "Collection of GIS functions for district heating networks"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Joris Zimmermann", email = "joris.zimmermann@siz-energieplus.de" },
+]
+requires-python = ">=3.12"
+keywords = ["dhnx", "gis", "heat-planning", "openstreetmap"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "pandas>3.0",
+    "pyyaml",
+    "numpy>=2.0",
+    "numba",
+    "geopandas>=1.0",
+    "matplotlib",
+    "osmnx>=1.9.4",
+    "momepy",
+    "coolprop",
+    "fiona",
+    "tobler",
+    "h3",
+    "contextily",
+    "libpysal",
+    "shapely>=2.0",
+    "openpyxl",
+    "fuzzywuzzy",
+    "joblib",
+    "mapclassify",
+
+    # for custom_basemaps.py
+    "mercantile",
+    "mapbox_vector_tile",
+    "vt2geojson",
+    "owslib",
+
+    # For dhnx, use an additional feature (switch to 'dev' if merged)
+    "dhnx @ https://github.com/oemof/DHNx/archive/features/pandapipes_pressure_loss.tar.gz",
+    # "oemof.solph>=0.6",  # Should be included in dhnx
+    # Use custom fork of pandapipes that is compatible with pandas 3.*
+    "pandapipes @ https://github.com/jnettels/pandapipes/archive/fix/pandas3.tar.gz",
+    # Use lpagg with the 'demandlib' extra
+    "lpagg[demandlib, simlty_GUI] @ https://github.com/jnettels/lpagg/archive/main.tar.gz",
+]
+
+[project.urls]
+Homepage = "https://github.com/jnettels/dhnx_addons"
+Repository = "https://github.com/jnettels/dhnx_addons"
+Issues = "https://github.com/jnettels/dhnx_addons/issues"
+
+[project.optional-dependencies]
+dev = [
+    "flake8",
+]
+test = ["pytest>=7.0", "pytest-cov"]
+3d = ["pyvista>=0.44.0"]
+
+[tool.flit.module]
+name = "dhnx_addons"
+path = "src"
+
+
+[tool.flit.sdist]
+include = [
+    'src/input/alkis_to_bdew.csv',
+    'src/input/Technikkatalog_Wärmeplanung_Version_1.1_August24_CC-BY.xlsx',
+]
