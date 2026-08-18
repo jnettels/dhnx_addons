@@ -272,7 +272,9 @@ def setup(log_level='INFO'):
                             module='Memory')
 
     # Silencing specific FutureWarning by message content
-
+    warnings.filterwarnings(
+        action="ignore", module='tobler',
+        message=("Cannot preserve dtype of "), category=UserWarning)
     warnings.filterwarnings(
         action="ignore", module='pandas',
         message=("The behavior of DataFrame concatenation with empty or "
