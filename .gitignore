@@ -18,6 +18,7 @@ dist/
 *.code-workspace
 *.gpkg
 
+.vscode/
 *.egg-info
 
 */result_*
