@@ -1,5 +1,5 @@
 """Collection of generalized functions for ALKIS and OpenStreetMap data."""
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from .cbc_installer import *
 from .custom_basemaps import *
