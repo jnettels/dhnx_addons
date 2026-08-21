@@ -47,8 +47,8 @@ dependencies = [
     "vt2geojson",
     "owslib",
 
-    # For dhnx, use an additional feature (switch to 'dev' if merged)
-    "dhnx @ https://github.com/oemof/DHNx/archive/features/pandapipes_pressure_loss.tar.gz",
+    # For dhnx, GitHub repository
+    "dhnx @ https://github.com/oemof/DHNx/archive/dev.tar.gz",
     # "oemof.solph>=0.6",  # Should be included in dhnx
     # Use custom fork of pandapipes that is compatible with pandas 3.*
     "pandapipes @ https://github.com/jnettels/pandapipes/archive/fix/pandas3.tar.gz",
