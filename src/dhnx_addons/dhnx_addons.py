@@ -941,9 +941,20 @@ def save_excel(df, path, **kwargs):
                 for idx in df_save.index.names:
                     idx_vals = df.index.unique(idx)
                     if is_datetime64_any_dtype(idx_vals):
-                        df_save.index = df_save.index.set_levels(
-                            idx_vals.tz_convert(tz=None),
-                            level=idx)
+                        try:
+                            df_save.index = (
+                                df_save.index
+                                .remove_unused_levels()
+                                .set_levels(
+                                    idx_vals.tz_convert(tz=None),
+                                    level=idx,
+                                    )
+                                )
+                        except ValueError as e:
+                            logger.error(
+                                "Saving Excel failed, please investigate")
+                            logger.exception(e)
+                            return
 
                 # Try again:
                 df_save.to_excel(path, **kwargs)
@@ -952,7 +963,7 @@ def save_excel(df, path, **kwargs):
                 raise e
 
     except PermissionError:
-        input("Please close the file to allow saving! Then hit Enter.")
+        input(f"Please close the file to allow saving, then hit Enter: {path}")
         save_excel(df_save, path, **kwargs)
 
 
