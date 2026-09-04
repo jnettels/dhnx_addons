@@ -3122,7 +3122,10 @@ def make_columns_numeric(df, columns=None, downcast='integer',
 
     def parse_numbers(x, downcast=None):
         try:
-            return pd.to_numeric(x, downcast=downcast)
+            if not is_datetime64_any_dtype(x):
+                return pd.to_numeric(x, downcast=downcast)
+            else:
+                return x
         except Exception:  # Return original value if it cannot be made numeric
             return x
 
