@@ -489,6 +489,7 @@ def workflow_example_openstreetmap(
             network, gdf_pipes, df_DN, show_plot=show_plot,
             elevation_col='height_m',
             download_missing_elevation=True,
+            f_loss_coefficient_zeta=1,
             # P_th_kW=df_load_ts_slice.loc[df_load_ts_slice.sum(axis=1).idxmax()],
             P_th_kW=network.components['consumers']['P_heat_max'],
             apply_flow_simultaneity=True,

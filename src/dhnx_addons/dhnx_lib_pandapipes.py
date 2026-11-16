@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)  # Create a logger for this module
 
 try:
     import pandapipes as pp
+    from pandapipes.control import WorstPointPressureDropController
+    from pandapipes.control.run_control import run_control
 except ImportError as e:
     logger.exception(e)
     logger.warning("Optional dependency 'pandapipes' can be installed with "
@@ -30,14 +32,17 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                    save_plot=False,
                    P_th_kW=None,
                    f_length_loss=2,
-                   pressure_net=12,  # [bar] (Pressure at the heat supply)
                    pressure_pn=20,  # [bar] The nominal pressure (used as initial value)
+                   pressure_return_set=3,  # [bar] Setpoint for pressure at the heat supply
+                   pressure_delta_worst_point=0.8,
                    pressure_loss_coefficient_consumer=0,
                    elevation_col=None,
                    download_missing_elevation=False,
-                   direction='forward',
+                   direction='circular',
                    pipe_section_length=50,
                    apply_flow_simultaneity=False,
+                   friction_model="colebrook",
+                   f_loss_coefficient_zeta=None,
                    **kwargs,
                    ):
     r"""Run pandapipes simulation with result network from dhnx.
@@ -52,7 +57,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     :math:`\frac{P_{loss}}{l} = (T_{op} - T_{ext}) \cdot U`
 
-    As per documentation of pandapipes the losses are calculated as:
+    As per documentation of pandapipes the thermal losses are calculated as:
 
     :math:`P_{loss} = \alpha\cdot l \cdot\pi\cdot d \cdot (T_{op} - T_{ext})`
 
@@ -81,18 +86,34 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
         Create 1 internal pipe section per e.g. 50m of pipe length, to improve
         accuracy of temperature profile (at the cost of computation time)
 
+    f_loss_coefficient_zeta : float, optional
+        Total friction pressure loss in a pipe is given by:
+
+        :math:`\Delta p =\frac{\rho}{2}\cdot v^2
+        \cdot (\zeta + \frac{\lambda\cdot l}{d})`
+
+        The pressure loss coefficient ``zeta`` can be described by a
+        function of pipe length ``l`` in [m], inner diameter ``d`` in [mm]
+        and a factor ``f`` that is set with ``f_loss_coefficient_zeta``:
+
+        :math:`\zeta = \frac{l\ [m]}{d\ [mm]} \cdot f`
+
+        Typical values for ``f`` range from 1 ... 2. If ``f`` is given,
+        ``zeta`` accounts for pressure losses from bends etc., in addition
+        to those resulting from pipe roughness. Otherwise ``zeta`` = 0.
+
+
 
     Supports a closed loop network
     https://github.com/e2nIEE/pandapipes/pull/530
     https://hub.2i2c.mybinder.org/user/e2niee-pandapipes-dfbkk3gx/notebooks/tutorials/district_heating/circular_flow_in_a_district_heating_grid.ipynb
 
-    TODO
-    See if BadPointPressureLiftController gets merged
-    https://github.com/e2nIEE/pandapipes/pull/711
-    Then use it instead of defining pressure_net and have the user check
-    the results.
 
-    Check if network is split into multiple parts and solve each on its own
+    TODO:
+        Requires "WorstPointPressureLiftController":
+            https://github.com/e2nIEE/pandapipes/pull/711
+
+        Check if network is split into multiple parts and solve each on its own
 
     """
     # Prepare the component tables of the DHNx network
@@ -110,10 +131,11 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     pp_net, forks, consumers, producers, pipes, junctions_consumers = pp_setup_net(
             forks, consumers, producers, pipes, direction, pressure_pn,
-            pressure_net, df_DN, elevation_col, P_th_kW,
+            pressure_return_set, df_DN, elevation_col, P_th_kW,
             pipe_section_length, pressure_loss_coefficient_consumer,
             download_missing_elevation, f_length_loss,
-            apply_flow_simultaneity=apply_flow_simultaneity)
+            apply_flow_simultaneity=apply_flow_simultaneity,
+            f_loss_coefficient_zeta=f_loss_coefficient_zeta)
 
     if show_plot:
         try:
@@ -127,7 +149,7 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Set default options for pandapipes simulation
     # kwargs = dict()
-    # kwargs.setdefault('iter', 10000)
+    kwargs.setdefault('iter', 100000)
     # kwargs.setdefault('tol_p', 1e-4)
     # kwargs.setdefault('tol_v', 1e-4)
     # kwargs.setdefault('stop_condition', "tol")
@@ -142,47 +164,35 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
 
     # Execute the pandapipes simulation
     try:
-        pp.pipeflow(pp_net, **kwargs)
+        pp.pipeflow(pp_net, friction_model=friction_model, **kwargs)
     except Exception as e:
         logger.exception(e)
         breakpoint()
 
+    if direction == 'circular':
+        # Add the controller and perform the control
+        dp_controller = WorstPointPressureDropController(
+            pp_net, mode='fixed_preturn',
+            target_dp_min_bar=pressure_delta_worst_point,
+            tolerance=0.001,
+            # proportional_gain=0.4,
+            )
+        pp_net.controller.loc[len(pp_net.controller)] = [
+            dp_controller, True, -1, -1, False, False]
+
+        run_control(pp_net, mode="bidirectional",
+                    friction_model=friction_model, iter=100000,
+                    max_iter=10000)
+
+        logger.info(f"Worst-Point: dp={dp_controller.dp_min:.02f} bar "
+                    f"@ consumer '{dp_controller.heat_consumer_idx}'")
+
+        junctions_consumers[dp_controller.heat_consumer_idx]
+        consumer_dp_min = consumers.loc[[str(dp_controller.heat_consumer_idx)]]
+
     pipes, forks, consumers, producers = pp_merge_results(
         pp_net, pipes, forks, consumers, producers, direction,
         elevation_col, idx_name)
-
-    if direction == 'circular':
-        # For a closed-loop simulation, a recalculation is necessary after
-        # determining the minimum pressure point in the forward flow. See
-        # https://github.com/e2nIEE/pandapipes/discussions/786
-        consumer_p_min_id = consumers.loc[[consumers['p_bar'].idxmin()],
-                                          'id_full'].to_list()
-
-        # Prepare the component tables of the DHNx network
-        forks = network.components['forks'].copy()
-        consumers = network.components['consumers'].copy()
-        producers = network.components['producers'].copy()
-        pipes = gdf_pipes.copy()
-        # reset the index to later on merge the pandapipes results, that
-        # do not know an 'id' or 'name' anymore
-        idx_name = pipes.index.name
-        if idx_name is None:
-            idx_name = 'index'
-        pipes = pipes.reset_index()
-
-        pp_net, forks, consumers, producers, pipes, junctions_consumers = pp_setup_net(
-                forks, consumers, producers, pipes, direction, pressure_pn,
-                pressure_net, df_DN, elevation_col, P_th_kW,
-                pipe_section_length, pressure_loss_coefficient_consumer,
-                download_missing_elevation, f_length_loss,
-                consumer_p_min_id=consumer_p_min_id,
-                apply_flow_simultaneity=apply_flow_simultaneity)
-
-        pp.pipeflow(pp_net, **kwargs)
-
-        pipes, forks, consumers, producers = pp_merge_results(
-            pp_net, pipes, forks, consumers, producers, direction,
-            elevation_col, idx_name)
 
     # print(pp_net.res_junction.head(n=8))
     # print(pp_net.res_pipe.head(n=8))
@@ -192,13 +202,13 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
     if not df_junctions_consumers.empty:
         df_junctions_consumers = df_junctions_consumers.join(
             pp_net.res_junction[['p_bar']].rename(columns={'p_bar': 'p_to_bar'}),
-            on='junction_to'
+            on='to_junction'
             )
         df_junctions_consumers = df_junctions_consumers.join(
             pp_net.res_junction[['p_bar']].rename(columns={'p_bar': 'p_from_bar'}),
-            on='junction_from'
+            on='from_junction'
             )
-        mask = df_junctions_consumers['p_from_bar'] > df_junctions_consumers['p_to_bar']
+        mask = df_junctions_consumers['p_from_bar'] < df_junctions_consumers['p_to_bar']
         df_junctions_consumers_mask = df_junctions_consumers.loc[mask]
         if not df_junctions_consumers_mask.empty:
             logger.debug('Pressure after these consumers is heigher '
@@ -222,22 +232,24 @@ def pandapipes_run(network, gdf_pipes, df_DN=None, show_plot=False,
                                          sheet_name='pandapipes_junctions')
 
     # Determine the low pressure and low temperature points ("Schlechtpunkt")
-    forks_p_min = forks.loc[[forks['p_bar'].idxmin()]]
+    # forks_p_min = forks.loc[[forks['p_bar'].idxmin()]]
     forks_t_min = forks.loc[[forks['t_°C'].idxmin()]]
 
-    pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
+    pp_plot_results(pipes, consumers, producers, forks, consumer_dp_min,
                     forks_t_min, direction, elevation_col, show_plot,
                     save_plot, save_path, save_gis_ext)
+
 
     return pipes, forks, consumers, producers
 
 
 def pp_setup_net(
         forks, consumers, producers, pipes, direction, pressure_pn,
-        pressure_net, df_DN, elevation_col, P_th_kW,
+        pressure_return_set, df_DN, elevation_col, P_th_kW,
         pipe_section_length, pressure_loss_coefficient_consumer,
         download_missing_elevation, f_length_loss,
-        consumer_p_min_id=None, apply_flow_simultaneity=False):
+        consumer_p_min_id=None, apply_flow_simultaneity=False,
+        f_loss_coefficient_zeta=None):
     import math
     from CoolProp.CoolProp import PropsSI
 
@@ -249,10 +261,12 @@ def pp_setup_net(
     if df_DN is None:  # Use some default values
         dT = 30  # [K]
         feed_temp = 348  # 75 °C (Feed-in temperature at the heat supply)
+        treturn_k = feed_temp - dT
         ext_temp = 283  # 10 °C (temperature of the ground)
     else:
         # Assume that the following values are the same for all DN types
         dT = (df_DN['T_forward [°C]'] - df_DN['T_return [°C]']).values[0]
+        treturn_k = df_DN['T_return [°C]'].values[0] + 273.15  # K
         feed_temp = df_DN['T_forward [°C]'].values[0] + 273.15  # K
         ext_temp = df_DN['T_ground [°C]'].values[0] + 273.15  # K
 
@@ -313,8 +327,9 @@ def pp_setup_net(
     # Get required physical properties of water
     cp = PropsSI('C',
                  'T', feed_temp,
-                 'P', pressure_net * 100000,   # pressure in [Pa],
+                 'P', pressure_pn * 100000,   # pressure in [Pa],
                  'IF97::Water')  # [kJ/(kg K)]
+    # Not used in "heat_consumer" (default) mode
     consumers['massflow'] = P_th_kW / (cp * dT * 0.001)  # [kg/s]
 
     # prepare the pipes dataframe
@@ -361,6 +376,15 @@ def pp_setup_net(
     if len(cols_select) > 0:
         cols_select.append("DN")
         pipes = pipes.join(df_DN[cols_select].set_index('DN'), on='DN')
+
+    if f_loss_coefficient_zeta is None:
+        pipes["zeta"] = 0
+    else:
+        # Approach: zeta = l/d_i * f (with [l] = m, [d_i] = mm, f = 1...2)
+        pipes["zeta"] = (
+            pipes['length'] / (pipes["Inner diameter [m]"] * 1000)
+            * f_loss_coefficient_zeta
+            )
 
     # Create the pandapipes model.
     # When direction is 'forward' or 'return', only a single direction
@@ -449,7 +473,7 @@ def pp_setup_net(
             junctions=pd.merge(
                 left=producers, right=pp_net.junction.reset_index(),
                 left_on='id_full', right_on='name')['index'],
-            p_bar=pressure_net,
+            p_bar=pressure_pn,
             t_k=feed_temp,
             name=producers['id_full'],
         )
@@ -483,7 +507,7 @@ def pp_setup_net(
             junctions=pd.merge(
                 left=consumers, right=pp_net.junction.reset_index(),
                 left_on='id_full', right_on='name')['index'],
-            p_bar=pressure_net,
+            p_bar=pressure_pn,
             t_k=feed_temp,
             name=consumers['id_full'],
         )
@@ -498,8 +522,8 @@ def pp_setup_net(
         # components.
 
         # pump_mode = "grid_plus_sink"
-        # pump_mode = "circ_pump_pressure"
-        pump_mode = "circ_pump_mass"
+        pump_mode = "circ_pump_pressure"
+        # pump_mode = "circ_pump_mass"
 
         # create pump for producers
         if pump_mode == 'circ_pump_mass':
@@ -554,7 +578,7 @@ def pp_setup_net(
                     # flow_junction=j_pump,
                     flow_junction=pp_net.junction.index[
                         pp_net.junction['name'] == producer['id_full']][0],
-                    p_flow_bar=pressure_net,
+                    p_flow_bar=pressure_pn,
                     mdot_flow_kg_per_s=mdot_flow,
                     name=producer['id_full'],
                     t_flow_k=feed_temp,
@@ -578,8 +602,8 @@ def pp_setup_net(
                         pp_net.junction['name'] == producer['id_full']+'-return'][0],
                     flow_junction=pp_net.junction.index[
                         pp_net.junction['name'] == producer['id_full']][0],
-                    p_flow_bar=pressure_net,
-                    plift_bar=6,
+                    p_flow_bar=pressure_pn,
+                    plift_bar=pressure_pn - pressure_return_set,
                     name=producer['id_full'],
                     t_flow_k=feed_temp,
                     )
@@ -601,7 +625,7 @@ def pp_setup_net(
                 junctions=pd.merge(
                     left=producers, right=pp_net.junction.reset_index(),
                     left_on='id_full', right_on='name')['index'],
-                p_bar=pressure_net,
+                p_bar=pressure_pn,
                 t_k=feed_temp,
                 name=producers['id_full'],
             )
@@ -619,13 +643,13 @@ def pp_setup_net(
                     pp_net,
                     junction=pp_net.junction.index[
                         pp_net.junction['name'] == producer['id_full']+'-return'][0],
-                    p_bar=pressure_net-6,
+                    p_bar=pressure_return_set,
                     t_k=feed_temp-50,
                     name=producer['id_full'],
                 )
 
-        # consumer_mode = 'heat_consumer'
-        consumer_mode = 'heatexchanger_and_flowcontrol'
+        consumer_mode = 'heat_consumer'
+        # consumer_mode = 'heatexchanger_and_flowcontrol'
 
         if consumer_mode == 'heat_consumer':
             # create 'heat_consumer' for consumers
@@ -640,10 +664,13 @@ def pp_setup_net(
                     left=consumers_return, right=pp_net.junction.reset_index(),
                     left_on='id_full', right_on='name')['index'],
                 qext_w=P_th_kW.mul(1000),
+                treturn_k=treturn_k,
                 # deltat_k=dT,
-                controlled_mdot_kg_per_s=consumers['massflow'],
+                # controlled_mdot_kg_per_s=consumers['massflow'],
                 name=consumers['id_full'],
                 )
+
+            junctions_consumers = pp_net.heat_consumer[["from_junction", "to_junction"]].to_dict(orient='index')
 
         elif consumer_mode == 'heatexchanger_and_flowcontrol':
             # The component 'heat_consumer' does not allow to set a pressure
@@ -656,7 +683,7 @@ def pp_setup_net(
                     pp_net.junction['name'] == consumer['id_full']+'-return'][0]
 
                 junctions_consumers[consumer['id_full']] = dict(
-                    junction_to=j_con_f, junction_from=j_con_r)
+                    from_junction=j_con_f, to_junction=j_con_r)
 
                 if ((consumer['id_full'] in consumer_p_min_id)
                     and (pump_mode == "circ_pump_mass")):
@@ -711,6 +738,7 @@ def pp_setup_net(
         k_mm=pipes["Roughness [mm]"],
         u_w_per_m2k=pipes["u [W/m2K]"],
         text_k=ext_temp,
+        loss_coefficient=pipes["zeta"],
         # name=pipes[idx_name],
         sections=(pipes.length.div(pipe_section_length)
                   .round(0).clip(lower=1).astype(int)),
@@ -735,6 +763,7 @@ def pp_setup_net(
             k_mm=pipes["Roughness [mm]"],
             u_w_per_m2k=pipes["u [W/m2K]"],
             text_k=ext_temp,
+            loss_coefficient=pipes["zeta"],
             # name=pipes[idx_name],
             sections=(pipes.length.div(pipe_section_length)
                       .round(0).clip(lower=1).astype(int)),
@@ -795,21 +824,110 @@ def pp_merge_results(
         ).set_index(pp_net.res_junction.index)
     junctions['t_°C'] = junctions['t_k'] - 273.15
 
+    # Calculate pressure altitude (ger: "Druckhöhe")
+    junctions["pressure_altitude_m"] = (
+        junctions["height_m"]
+        + (junctions["p_bar"]*1e5 /
+           (pp_net.fluid.get_density(junctions['t_k']) * 9.81))
+        )
+
+    pipes["height_from_m"] = pd.merge(
+        left=pipes, right=pp_net.junction.reset_index(),
+        left_on='from_node', right_on='name').set_index(pipes.index)["height_m"]
+    pipes["height_to_m"] = pd.merge(
+        left=pipes, right=pp_net.junction.reset_index(),
+        left_on='to_node', right_on='name').set_index(pipes.index)["height_m"]
+    pipes["pressure_altitude_from_m"] = (
+        pipes["height_from_m"]
+        + (pipes["p_from_bar"]*1e5 /
+           (pp_net.fluid.get_density(pipes['t_from_k']) * 9.81))
+        )
+    pipes["pressure_altitude_to_m"] = (
+        pipes["height_to_m"]
+        + (pipes["p_to_bar"]*1e5 /
+           (pp_net.fluid.get_density(pipes['t_to_k']) * 9.81))
+        )
+
     forks = pd.merge(
-        forks, junctions.drop(columns=[elevation_col], errors='ignore'),
+        forks, junctions.drop(columns=["height_m"], errors='ignore'),
         left_on='id_full', right_on='name',
         how='left'
         ).set_index(forks.index)
+
+    # Assign forward flow and return attribtes from junctions to consumers
     consumers = pd.merge(
-        consumers, junctions.drop(columns=[elevation_col], errors='ignore'),
+        consumers,
+        (junctions
+         .drop(columns=[elevation_col, "tfluid_k", "type", "in_service"],
+               errors='ignore')
+         .rename(columns={"p_bar": "p_flow_bar",
+                          "t_k": "t_flow_k",
+                          "t_°C": "t_flow_°C",
+                          "pn_bar": "pn_flow_bar",
+                          })
+         ),
         left_on='id_full', right_on='name',
         how='left', suffixes=('', '_pp')
         ).set_index(consumers.index)
+
+    consumers["id_full_return"] = consumers["id_full"] + '-return'
+    consumers = pd.merge(
+        consumers,
+        (junctions
+         .drop(columns=[elevation_col, "tfluid_k", "type", "in_service"],
+               errors='ignore')
+         .rename(columns={"p_bar": "p_return_bar",
+                          "t_k": "t_return_k",
+                          "t_°C": "t_return_°C",
+                          "pn_bar": "pn_return_bar",
+                          })
+         ),
+        left_on='id_full_return', right_on='name',
+        how='left', suffixes=('', '_pp_return')
+        ).set_index(consumers.index)
+    consumers = consumers.drop(
+        columns=["id_full_return", 'name_pp', 'name_pp_return'])
+    consumers["dp_bar"] = (
+        consumers["p_flow_bar"] - consumers["p_return_bar"])
+
+    # Assign forward flow and return attribtes from junctions to produers
     producers = pd.merge(
-        producers, junctions.drop(columns=[elevation_col], errors='ignore'),
+        producers,
+        (junctions
+         .drop(columns=[elevation_col, "tfluid_k", "type", "in_service"],
+               errors='ignore')
+         .rename(columns={"p_bar": "p_flow_bar",
+                          "t_k": "t_flow_k",
+                          "t_°C": "t_flow_°C",
+                          "pn_bar": "pn_flow_bar",
+                          "pressure_altitude_m": "pressure_altitude_flow_m",
+                          })
+         ),
         left_on='id_full', right_on='name',
         how='left', suffixes=('', '_pp')
         ).set_index(producers.index)
+
+    producers["id_full_return"] = producers["id_full"] + '-return'
+    producers = pd.merge(
+        producers,
+        (junctions
+         .drop(columns=[elevation_col, "tfluid_k", "type", "in_service"],
+               errors='ignore')
+         .rename(columns={"p_bar": "p_return_bar",
+                          "t_k": "t_return_k",
+                          "t_°C": "t_return_°C",
+                          "pn_bar": "pn_return_bar",
+                          "pressure_altitude_m": "pressure_altitude_return_m",
+                          })
+         ),
+        left_on='id_full_return', right_on='name',
+        how='left', suffixes=('', '_pp_return')
+        ).set_index(producers.index)
+    producers = producers.drop(
+        columns=["id_full_return", 'name_pp', 'name_pp_return'],
+        errors='ignore')
+    producers["dp_bar"] = (
+        producers["p_flow_bar"] - producers["p_return_bar"])
 
     # Convert Kelvin to degrees Celsius temperature columns
     pipes['t_from_°C'] = pipes['t_from_k'] - 273.15
@@ -820,6 +938,8 @@ def pp_merge_results(
     pipes['v_mean_m_per_s_abs'] = pipes['v_mean_m_per_s'].abs()
     pipes['delta_p_Pa/m'] = (
         pipes['p_from_bar']-pipes['p_to_bar']).abs() / (pipes.length * 1e-5)
+    pipes['delta_p_friction_Pa/m'] = (
+        pipes['dp_friction_loss_bar'].abs()) / (pipes.length * 1e-5)
     # 'to' and 'from' may be confusing when the flow direction
     # of individual segments is reversed.
     pipes['p_mean_bar'] = pipes[['p_to_bar', 'p_from_bar']].mean(axis='columns')
@@ -903,7 +1023,8 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
                 plt_kwargs=[dict(label='Consumer', color='green'),
                             dict(label='Producer',
                                  color=matplotlib.colormaps['cividis'](1.0)),
-                            dict(column='delta_p_Pa/m', linewidth=2, legend=True,
+                            dict(column='delta_p_friction_Pa/m', linewidth=2,
+                                 legend=True,
                                  label='Pipelines',
                                  cmap='cividis',
                                  legend_kwds={'label': 'Pressure loss [Pa/m]'}),
@@ -1035,15 +1156,33 @@ def pp_plot_results(pipes, consumers, producers, forks, forks_p_min,
 
         if show_plot or save_plot:
             fig, ax = plt.subplots()
-            ax.plot(gdf_shortest_f['distance'], gdf_shortest_f['p_mean_bar'], label='Forward')
-            ax.plot(gdf_shortest_r['distance'], gdf_shortest_r['p_mean_bar'], label='Return')
+            ax.plot(gdf_shortest_f['distance'], gdf_shortest_f['p_mean_bar'], label='Forward', color='tab:red')
+            ax.plot(gdf_shortest_r['distance'], gdf_shortest_r['p_mean_bar'], label='Return', color='tab:blue')
             ax.set_xlabel('Distance [m]')
             ax.set_ylabel('Pressure [bar]')
+            plt.grid(axis='y')
             plt.legend()
 
             if save_plot:
                 custom_plot_save(
                     os.path.join(save_path, 'plots', 'Pressure vs Distance'))
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
+
+            fig, ax = plt.subplots()
+            ax.plot(gdf_shortest_f['distance'], gdf_shortest_f['pressure_altitude_to_m'], label='Forward', color='tab:red')
+            ax.plot(gdf_shortest_r['distance'], gdf_shortest_r['pressure_altitude_to_m'], label='Return', color='tab:blue')
+            ax.plot(gdf_shortest_r['distance'], gdf_shortest_r['height_to_m'], label='Ground level', ls="--", color="grey")
+            ax.set_xlabel('Distance [m]')
+            ax.set_ylabel('(Pressure) Altitude [m]')
+            plt.grid(axis='y')
+            plt.legend()
+
+            if save_plot:
+                custom_plot_save(
+                    os.path.join(save_path, 'plots', 'Pressure altitude vs Distance'))
             if show_plot:
                 plt.show()
             else:
