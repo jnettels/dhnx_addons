@@ -40,6 +40,7 @@ dependencies = [
     "fuzzywuzzy",
     "joblib",
     "mapclassify",
+    "tzdata",
 
     # for custom_basemaps.py
     "mercantile",
